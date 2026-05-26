@@ -1,35 +1,35 @@
 """
 Domoticz Dreame Plus Plugin - starter implementation
 
-Doel:
-- Domoticz Python-plugin voor Dreame robotstofzuigers
-- Basisbediening: start, pause, dock, stop, locate
-- Status, batterij, fan-level, water-level
-- Uitbreidbaar voor room-cleaning en zone-cleaning
+Purpose:
+- Domoticz Python plugin for Dreame robot vacuums
+- Basic controls: start, pause, dock, stop, locate
+- Status, battery, fan level, water level
+- Extendable for room cleaning and zone cleaning
 
-Belangrijk:
-- Dit is een eerste werkbare plugin-structuur. Dreame-modellen verschillen sterk.
-- Voor lokale MIIO-aansturing heb je IP + token nodig.
-- Voor cloud/map/room-functies is later een extra cloud-backend nodig.
+Important:
+- This is an initial working plugin structure. Dreame models vary widely.
+- Local MIIO control requires an IP address and token.
+- Cloud/map/room functions will later require an additional cloud backend.
 
-Installatie:
-1. Plaats deze file als:
+Installation:
+1. Place this file as:
    domoticz/plugins/domoticz-dreame-plus/plugin.py
-2. Installeer dependency in dezelfde Python-omgeving als Domoticz:
+2. Install the dependency in the same Python environment as Domoticz:
    pip3 install python-miio
-3. Herstart Domoticz.
-4. Voeg hardware toe: Type = Dreame Plus Vacuum.
+3. Restart Domoticz.
+4. Add hardware: Type = Dreame Plus Vacuum.
 
 Plugin parameters in Domoticz:
-- Address: IP-adres van robot
+- Address: robot IP address
 - Port: 54321
 - Mode1: token
-- Mode2: polling interval in seconden, standaard 30
-- Mode3: optionele room-config, bijvoorbeeld: keuken:1,woonkamer:2,slaapkamer:3
+- Mode2: polling interval in seconds, default 30
+- Mode3: optional room config, for example: kitchen:1,living_room:2,bedroom:3
 
-Licentieadvies:
-- Check de licentie van bestaande plugins en libraries voordat je code kopieert.
-- Deze file is bedoeld als eigen starter zonder code direct uit HA of andere plugins te kopiëren.
+License advice:
+- Check the license of existing plugins and libraries before copying code.
+- This file is intended as an original starter without copying code directly from HA or other plugins.
 """
 
 """
@@ -106,15 +106,15 @@ WATER_LEVELS = {
 
 
 class DreameLocalClient:
-    """Thin wrapper rond python-miio.
+    """Thin wrapper around python-miio.
 
-    Deze klasse is bewust klein gehouden. Alle Dreame-specifieke hacks horen hier,
-    niet in de Domoticz callback-code.
+    This class is intentionally kept small. All Dreame-specific hacks belong here,
+    not in the Domoticz callback code.
     """
 
     def __init__(self, ip: str, token: str, port: int = 54321):
         if Vacuum is None:
-            raise RuntimeError("python-miio is niet beschikbaar. Installeer met: pip3 install python-miio")
+            raise RuntimeError("python-miio is not available. Install it with: pip3 install python-miio")
         self.ip = ip
         self.token = token
         self.port = port
@@ -151,7 +151,7 @@ class DreameLocalClient:
         return self.device.find()
 
     def set_fan_level(self, level: int):
-        # Veel Xiaomi/Dreame MIIO firmwares gebruiken 101/102/103/104.
+        # Many Xiaomi/Dreame MIIO firmwares use 101/102/103/104.
         mapping = {
             10: 101,
             20: 102,
@@ -164,8 +164,8 @@ class DreameLocalClient:
         return self.device.set_fan_power(value)
 
     def set_water_level(self, level: int):
-        # Niet elk model ondersteunt dit via dezelfde MIIO property.
-        # Daarom proberen we de bekende raw property-methodes defensief.
+        # Not every model supports this through the same MIIO property.
+        # That is why we defensively try the known raw property methods.
         mapping = {
             10: 1,
             20: 2,
@@ -177,8 +177,8 @@ class DreameLocalClient:
         return self.raw_set_property("water_level", value)
 
     def clean_room(self, room_id: int):
-        # Afhankelijk van model/firmware kan de methode verschillen.
-        # Vaak werkt app_segment_clean met segment/room-id's.
+        # Depending on the model/firmware, the method may differ.
+        # app_segment_clean often works with segment/room IDs.
         if hasattr(self.device, "app_segment_clean"):
             return self.device.app_segment_clean([room_id])
         return self.raw_call("app_segment_clean", [[room_id]])
@@ -188,7 +188,7 @@ class DreameLocalClient:
         return self.device.send(method, params)
 
     def raw_set_property(self, prop: str, value: Any):
-        # Fallback voor MIoT-achtige firmwares. Kan per model aangepast worden.
+        # Fallback for MIoT-like firmwares. Can be adjusted per model.
         try:
             return self.device.send("set_property", [prop, value])
         except Exception:
@@ -311,7 +311,7 @@ class BasePlugin:
     def update_from_status(self, status: Dict[str, Any]):
         battery = status.get("battery")
         if battery is not None and UNIT_BATTERY in Devices:
-            # Percentage device: nValue altijd 0, sValue bevat de waarde
+            # Percentage device: nValue is always 0, sValue contains the value.
             Devices[UNIT_BATTERY].Update(nValue=0, sValue=str(int(battery)))
 
         state_text = status.get("state", "unknown")
@@ -320,7 +320,7 @@ class BasePlugin:
         if status_message:
             self.log_debug("Status info: {}".format(status_message))
         if UNIT_STATUS in Devices:
-            # Selector Switch: nValue=0 (level 0) of 2 (level geselecteerd), sValue=level als string
+            # Selector Switch: nValue=0 (level 0) or 2 (level selected), sValue=level as a string.
             nvalue = 0 if status_level == 0 else 2
             Devices[UNIT_STATUS].Update(nValue=nvalue, sValue=str(status_level))
 
@@ -387,7 +387,7 @@ class BasePlugin:
         if unit not in Devices:
             return
         text = levels.get(level, "Unknown")
-        # Domoticz Selector Switch: nValue=0 (off/level 0), nValue=2 (level > 0 geselecteerd)
+        # Domoticz Selector Switch: nValue=0 (off/level 0), nValue=2 (level > 0 selected).
         nvalue = 0 if level == 0 else 2
         Devices[unit].Update(nValue=nvalue, sValue=str(level))
         self.log_debug("Updated selector {} to {}".format(unit, text))
