@@ -279,7 +279,7 @@ class BasePlugin:
         self.update_selector(UNIT_CONTROL, level, CONTROL_LEVELS)
 
     def handle_room_command(self, unit: int, command: str, level: int):
-        if command != "On" and level == 0:
+        if command != "On":
             return
         room_name = Devices[unit].Name
         room_id = self.rooms.get(room_name)
@@ -311,13 +311,18 @@ class BasePlugin:
     def update_from_status(self, status: Dict[str, Any]):
         battery = status.get("battery")
         if battery is not None and UNIT_BATTERY in Devices:
-            Devices[UNIT_BATTERY].Update(nValue=int(battery), sValue=str(int(battery)))
+            # Percentage device: nValue altijd 0, sValue bevat de waarde
+            Devices[UNIT_BATTERY].Update(nValue=0, sValue=str(int(battery)))
 
         state_text = status.get("state", "unknown")
         status_level = self.map_state_to_level(state_text)
         status_message = self.compose_status_message(status)
+        if status_message:
+            self.log_debug("Status info: {}".format(status_message))
         if UNIT_STATUS in Devices:
-            Devices[UNIT_STATUS].Update(nValue=status_level, sValue=STATUS_LEVELS.get(status_level, "Unknown") + "|" + status_message)
+            # Selector Switch: nValue=0 (level 0) of 2 (level geselecteerd), sValue=level als string
+            nvalue = 0 if status_level == 0 else 2
+            Devices[UNIT_STATUS].Update(nValue=nvalue, sValue=str(status_level))
 
         fan_power = status.get("fan_power")
         fan_level = self.map_fan_to_level(fan_power)
@@ -382,7 +387,9 @@ class BasePlugin:
         if unit not in Devices:
             return
         text = levels.get(level, "Unknown")
-        Devices[unit].Update(nValue=level, sValue=str(level))
+        # Domoticz Selector Switch: nValue=0 (off/level 0), nValue=2 (level > 0 geselecteerd)
+        nvalue = 0 if level == 0 else 2
+        Devices[unit].Update(nValue=nvalue, sValue=str(level))
         self.log_debug("Updated selector {} to {}".format(unit, text))
 
     def update_error(self, message: str):
