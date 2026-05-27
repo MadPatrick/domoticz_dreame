@@ -1,4 +1,4 @@
-# Domoticz Dreame API Plugin (v90.5.2)
+# Domoticz Dreame API Plugin (v0.5.2)
 
 This plugin connects Domoticz to Dreame robot vacuums through the **Dreame Home Cloud API**.
 
