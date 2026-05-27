@@ -206,6 +206,7 @@ class BasePlugin:
             Domoticz.Device(Name='Dreame Status', Unit=UNIT_STATUS, TypeName='Text', Used=1).Create()
         self.ensure_selector(UNIT_CONTROL, 'Dreame Control', CONTROL_LEVELS, level_off_hidden='true')
         if UNIT_CONTROL in Devices and UNIT_CONTROL_LEGACY in Devices:
+            Domoticz.Log('Removing legacy Dreame Control device on unit {}'.format(UNIT_CONTROL_LEGACY))
             Devices[UNIT_CONTROL_LEGACY].Delete()
         if UNIT_BATTERY not in Devices:
             Domoticz.Device(Name='Dreame Battery', Unit=UNIT_BATTERY, TypeName='Percentage', Used=1).Create()
