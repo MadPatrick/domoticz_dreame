@@ -41,7 +41,7 @@ Adjust the plugin path above if your Domoticz installation uses a different loca
 
 ## Configuration
 
-- `Region` is now a selector with these choices: `EU`, `DE`, `CN`, `US`, `RU`, `TW`, `SG`, `IN`, `I2`.
+- The `Region` parameter is a selector with these choices: `EU`, `DE`, `CN`, `US`, `RU`, `TW`, `SG`, `IN`, `I2`.
 - Default region is `EU`.
 
 ## Managing Rooms
