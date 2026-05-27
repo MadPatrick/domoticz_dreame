@@ -23,7 +23,7 @@ This is a clean and complete plugin version for Dreame robot vacuums, including 
 ## Installation (Git)
 
 ```bash
-cd /home/patrick/domoticz/plugins
+cd /path/to/domoticz/plugins
 sudo systemctl stop domoticz
 
 if [ -d dreame ]; then
@@ -70,7 +70,7 @@ For this model, rooms may not be returned by the normal API route. Possible opti
 1. Test with:
 
 ```bash
-python3 test_fastcommand_probe.py --username 'mail' --password 'pass' --country eu
+python3 test_fastcommand_probe.py --username 'your_email@example.com' --password 'your_password' --country eu
 ```
 
 2. Use app/log/proxy analysis to find segment IDs.
