@@ -235,7 +235,7 @@ class BasePlugin:
     def onCommand(self, Unit, Command, Level, Hue):
         self.log_debug("onCommand Unit={} Command={} Level={}".format(Unit, Command, Level))
         if not self.api or not self.did:
-            Domoticz.Error("Dreame API not connected")
+            Domoticz.Error("Dreame API not connected (Unit={} Command={} Level={})".format(Unit, Command, Level))
             self.update_error("Not connected")
             return
 
@@ -261,23 +261,33 @@ class BasePlugin:
     def handle_control(self, action_name: str):
         action = ACTION.get(action_name)
         if not action:
-            Domoticz.Log("Action {} is not available in dreame_api ACTION mapping".format(action_name))
+            Domoticz.Error("Action {} is not available in dreame_api ACTION mapping".format(action_name))
             return
         self.api.call_action(self.did, self.bind_domain, action)
 
     def handle_fan(self, level: int):
         mapping = {10: 0, 20: 1, 30: 2, 40: 3}
-        if level in mapping:
-            p = PROP["SUCTION_LEVEL"]
-            self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": mapping[level]}])
-            self.update_selector(UNIT_FAN, level)
+        if level not in mapping:
+            Domoticz.Error("Unsupported fan level: {}".format(level))
+            return
+        p = PROP.get("SUCTION_LEVEL")
+        if not p:
+            Domoticz.Error("SUCTION_LEVEL property mapping is missing in dreame_api PROP")
+            return
+        self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": mapping[level]}])
+        self.update_selector(UNIT_FAN, level)
 
     def handle_water(self, level: int):
         mapping = {10: 1, 20: 2, 30: 3}
-        if level in mapping:
-            p = PROP["WATER_VOLUME"]
-            self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": mapping[level]}])
-            self.update_selector(UNIT_WATER, level)
+        if level not in mapping:
+            Domoticz.Error("Unsupported water level: {}".format(level))
+            return
+        p = PROP.get("WATER_VOLUME")
+        if not p:
+            Domoticz.Error("WATER_VOLUME property mapping is missing in dreame_api PROP")
+            return
+        self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": mapping[level]}])
+        self.update_selector(UNIT_WATER, level)
 
     def handle_room_clean(self, level: int):
         room = self.room_for_level(level)
@@ -292,6 +302,10 @@ class BasePlugin:
         # Dreame segment-clean payload used by L/X family MIOT action fallback.
         # If this changes for a firmware, only this payload needs adjustment.
         action = ACTION.get("START_CUSTOM") or ACTION.get("START")
+        if not action:
+            Domoticz.Error("Neither START_CUSTOM nor START action is available in dreame_api ACTION mapping")
+            self.update_error("Room clean action unavailable")
+            return
         payload = [{"piid": 1, "value": json.dumps([[room_id, 1, 1]])}]
         self.api.call_action(self.did, self.bind_domain, action, in_params=payload)
 
@@ -311,7 +325,7 @@ class BasePlugin:
             self.update_from_status(status)
             self.learn_from_status(status)
         except Exception as exc:
-            Domoticz.Error("Polling failed: {}".format(exc))
+            Domoticz.Error("Polling failed for did={} bindDomain={}: {}".format(self.did, self.bind_domain, exc))
             self.update_error("Poll failed: {}".format(exc))
 
     def refresh_rooms(self, force: bool = False):
@@ -327,6 +341,7 @@ class BasePlugin:
             try:
                 api_rooms = self.get_rooms_from_api()
             except Exception as exc:
+                Domoticz.Error("Room API discovery failed for did={} bindDomain={}: {}".format(self.did, self.bind_domain, exc))
                 self.log_debug("Room API discovery failed: {}".format(exc))
 
         if api_rooms:

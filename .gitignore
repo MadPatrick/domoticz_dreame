@@ -2,3 +2,8 @@
 __pycache__/
 *.py[codz]
 *$py.class
+
+# Runtime/generated plugin artifacts
+room_cache.json
+dreame_token_cache.json
+dreame_debug_dump.json
