@@ -1,45 +1,11 @@
 """
-Domoticz Dreame Plus Plugin - starter implementation
-
-Purpose:
-- Domoticz Python plugin for Dreame robot vacuums
-- Basic controls: start, pause, dock, stop, locate
-- Status, battery, fan level, water level
-- Extendable for room cleaning and zone cleaning
-
-Important:
-- This is an initial working plugin structure. Dreame models vary widely.
-- Local MIIO control requires an IP address and token.
-- Cloud/map/room functions will later require an additional cloud backend.
-
-Installation:
-1. Place this file as:
-   domoticz/plugins/domoticz-dreame-plus/plugin.py
-2. Install the dependency in the same Python environment as Domoticz:
-   pip3 install python-miio
-3. Restart Domoticz.
-4. Add hardware: Type = Dreame Plus Vacuum.
-
-Plugin parameters in Domoticz:
-- Address: robot IP address
-- Port: 54321
-- Mode1: token
-- Mode2: polling interval in seconds, default 30
-- Mode3: optional room config, for example: kitchen:1,living_room:2,bedroom:3
-
-License advice:
-- Check the license of existing plugins and libraries before copying code.
-- This file is intended as an original starter without copying code directly from HA or other plugins.
-"""
-
-"""
-<plugin key="DreamePlus" name="Dreame Plus Vacuum" author="Geeve + ChatGPT" version="0.1.0" wikilink="" externallink="">
+<plugin key="DreameAPI" name="Dreame API Vacuum" author="Geeve + ChatGPT" version="90.5.2" wikilink="" externallink="">
     <params>
-        <param field="Address" label="Robot IP Address" width="200px" required="true" default="192.168.1.50" />
-        <param field="Port" label="Port" width="75px" required="true" default="54321" />
-        <param field="Mode1" label="Token" width="400px" required="true" default="" />
-        <param field="Mode2" label="Polling interval seconds" width="75px" required="false" default="30" />
-        <param field="Mode3" label="Rooms name:id,name:id" width="400px" required="false" default="" />
+        <param field="Mode1" label="Dreame Home email" width="260px" required="true" default="" />
+        <param field="Mode2" label="Dreame Home password" width="260px" required="true" default="" password="true" />
+        <param field="Mode3" label="Region" width="80px" required="true" default="eu" />
+        <param field="Mode4" label="Device ID (optional)" width="220px" required="false" default="" />
+        <param field="Mode5" label="Poll seconds" width="80px" required="false" default="30" />
         <param field="Mode6" label="Debug" width="75px">
             <options>
                 <option label="False" value="False" default="true" />
@@ -50,420 +16,247 @@ License advice:
 </plugin>
 """
 
-import Domoticz
+import os
 import time
-from typing import Dict, Optional, Any, Tuple
+from typing import Any, Dict, Optional
+
+import Domoticz
 
 try:
-    from miio import Vacuum
-except Exception:
-    Vacuum = None
-
+    from dreame_api import DreameApi, DreameApiError, PROP, ACTION
+except Exception as exc:
+    DreameApi = None
+    DreameApiError = Exception
+    _IMPORT_ERROR = exc
+else:
+    _IMPORT_ERROR = None
 
 UNIT_STATUS = 1
 UNIT_CONTROL = 2
 UNIT_BATTERY = 3
-UNIT_FAN = 4
-UNIT_WATER = 5
-UNIT_ERROR = 6
-UNIT_ROOMS_START = 20
+UNIT_ERROR = 4
+UNIT_FAN = 5
+UNIT_WATER = 6
+UNIT_DETAILS = 7
 
-
-STATUS_LEVELS = {
-    0: "Unknown",
-    10: "Idle",
-    20: "Cleaning",
-    30: "Paused",
-    40: "Returning",
-    50: "Docked",
-    60: "Charging",
-    70: "Error",
-}
-
-CONTROL_LEVELS = {
-    0: "Off",
-    10: "Start",
-    20: "Pause",
-    30: "Dock",
-    40: "Stop",
-    50: "Locate",
-}
-
-FAN_LEVELS = {
-    0: "Unknown",
-    10: "Quiet",
-    20: "Standard",
-    30: "Strong",
-    40: "Turbo",
-}
-
-WATER_LEVELS = {
-    0: "Unknown",
-    10: "Low",
-    20: "Medium",
-    30: "High",
-}
-
-
-class DreameLocalClient:
-    """Thin wrapper around python-miio.
-
-    This class is intentionally kept small. All Dreame-specific hacks belong here,
-    not in the Domoticz callback code.
-    """
-
-    def __init__(self, ip: str, token: str, port: int = 54321):
-        if Vacuum is None:
-            raise RuntimeError("python-miio is not available. Install it with: pip3 install python-miio")
-        self.ip = ip
-        self.token = token
-        self.port = port
-        self.device = Vacuum(ip=ip, token=token, port=port)
-
-    def status(self) -> Dict[str, Any]:
-        raw = self.device.status()
-        return {
-            "battery": getattr(raw, "battery", None),
-            "state": str(getattr(raw, "state", "unknown")),
-            "state_code": getattr(getattr(raw, "state", None), "value", None),
-            "fan_power": getattr(raw, "fan_power", None),
-            "error": str(getattr(raw, "error", "None")),
-            "clean_area": getattr(raw, "clean_area", None),
-            "clean_time": getattr(raw, "clean_time", None),
-        }
-
-    def start(self):
-        return self.device.start()
-
-    def pause(self):
-        return self.device.pause()
-
-    def stop(self):
-        try:
-            return self.device.stop()
-        except Exception:
-            return self.pause()
-
-    def dock(self):
-        return self.device.home()
-
-    def locate(self):
-        return self.device.find()
-
-    def set_fan_level(self, level: int):
-        # Many Xiaomi/Dreame MIIO firmwares use 101/102/103/104.
-        mapping = {
-            10: 101,
-            20: 102,
-            30: 103,
-            40: 104,
-        }
-        value = mapping.get(level)
-        if value is None:
-            return None
-        return self.device.set_fan_power(value)
-
-    def set_water_level(self, level: int):
-        # Not every model supports this through the same MIIO property.
-        # That is why we defensively try the known raw property methods.
-        mapping = {
-            10: 1,
-            20: 2,
-            30: 3,
-        }
-        value = mapping.get(level)
-        if value is None:
-            return None
-        return self.raw_set_property("water_level", value)
-
-    def clean_room(self, room_id: int):
-        # Depending on the model/firmware, the method may differ.
-        # app_segment_clean often works with segment/room IDs.
-        if hasattr(self.device, "app_segment_clean"):
-            return self.device.app_segment_clean([room_id])
-        return self.raw_call("app_segment_clean", [[room_id]])
-
-    def raw_call(self, method: str, params=None):
-        params = params or []
-        return self.device.send(method, params)
-
-    def raw_set_property(self, prop: str, value: Any):
-        # Fallback for MIoT-like firmwares. Can be adjusted per model.
-        try:
-            return self.device.send("set_property", [prop, value])
-        except Exception:
-            return self.device.send("set_" + prop, [value])
-
+STATUS_LEVELS = {0:'Unknown',10:'Idle',20:'Cleaning',30:'Paused',40:'Returning',50:'Docked',60:'Charging',70:'Error'}
+CONTROL_LEVELS = {0:'Off',10:'Start',20:'Pause',30:'Dock',40:'Stop',50:'Locate'}
+FAN_LEVELS = {0:'Unknown',10:'Quiet',20:'Standard',30:'Strong',40:'Turbo'}
+WATER_LEVELS = {0:'Unknown',10:'Low',20:'Medium',30:'High'}
 
 class BasePlugin:
     def __init__(self):
-        self.client: Optional[DreameLocalClient] = None
-        self.last_poll = 0.0
+        self.api = None
+        self.device: Optional[Dict[str, Any]] = None
+        self.did = ''
+        self.bind_domain = ''
         self.poll_interval = 30
-        self.rooms: Dict[str, int] = {}
+        self.last_poll = 0.0
         self.debug = False
 
-    def log_debug(self, message: str):
+    def log_debug(self, msg: str):
         if self.debug:
-            Domoticz.Debug(message)
+            Domoticz.Debug(str(msg))
 
     def onStart(self):
-        self.debug = Parameters.get("Mode6", "False") == "True"
+        self.debug = Parameters.get('Mode6', 'False') == 'True'
         if self.debug:
             Domoticz.Debugging(1)
-
-        ip = Parameters.get("Address", "").strip()
-        token = Parameters.get("Mode1", "").strip()
-        port = int(Parameters.get("Port", "54321") or 54321)
-        self.poll_interval = int(Parameters.get("Mode2", "30") or 30)
-        self.rooms = self.parse_rooms(Parameters.get("Mode3", ""))
-
-        Domoticz.Log("Starting Dreame Plus Vacuum plugin")
-
+        self.poll_interval = int(Parameters.get('Mode5', '30') or 30)
         self.create_devices()
-
+        Domoticz.Log('Starting Dreame API plugin v90.5.2')
+        if DreameApi is None:
+            self.update_error('Import failed: {}'.format(_IMPORT_ERROR))
+            Domoticz.Error('Dreame API import failed: {}'.format(_IMPORT_ERROR))
+            return
+        username = Parameters.get('Mode1', '').strip()
+        password = Parameters.get('Mode2', '')
+        country = (Parameters.get('Mode3', 'eu') or 'eu').strip().lower()
+        wanted_did = Parameters.get('Mode4', '').strip() or None
+        token_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dreame_token_cache.json')
         try:
-            self.client = DreameLocalClient(ip=ip, token=token, port=port)
-            Domoticz.Log("Connected to Dreame robot at {}:{}".format(ip, port))
+            self.api = DreameApi(username, password, country, token_file=token_file, logger=self.log_debug)
+            self.api.login()
+            self.device = self.api.select_device(wanted_did)
+            self.did = str(self.device.get('did') or self.device.get('deviceId') or self.device.get('id'))
+            self.bind_domain = self.api.get_bind_domain(self.device)
+            Domoticz.Log('Dreame API connected. Device: {} did={} model={} bindDomain={}'.format(
+                self.device.get('name') or self.device.get('customName') or 'Dreame',
+                self.did,
+                self.device.get('model'),
+                self.bind_domain,
+            ))
+            self.update_error('OK')
         except Exception as exc:
-            self.client = None
-            Domoticz.Error("Could not initialize Dreame client: {}".format(exc))
-            self.update_error("Init failed: {}".format(exc))
-
+            self.api = None
+            Domoticz.Error('Dreame API init failed: {}'.format(exc))
+            self.update_error('Init failed: {}'.format(exc))
         Domoticz.Heartbeat(10)
         self.poll(force=True)
 
     def onStop(self):
-        Domoticz.Log("Dreame Plus Vacuum plugin stopped")
+        Domoticz.Log('Dreame API plugin stopped')
         Domoticz.Debugging(0)
 
     def onHeartbeat(self):
         self.poll(force=False)
 
     def onCommand(self, Unit, Command, Level, Hue):
-        self.log_debug("onCommand Unit={} Command={} Level={}".format(Unit, Command, Level))
-        if not self.client:
-            Domoticz.Error("No Dreame client available")
+        self.log_debug('onCommand Unit={} Command={} Level={}'.format(Unit, Command, Level))
+        if not self.api or not self.did:
+            Domoticz.Error('Dreame API not connected')
+            self.update_error('Not connected')
             return
-
         try:
             if Unit == UNIT_CONTROL:
                 self.handle_control(Level)
             elif Unit == UNIT_FAN:
-                self.client.set_fan_level(Level)
-                self.update_selector(UNIT_FAN, Level, FAN_LEVELS)
+                self.handle_fan(Level)
             elif Unit == UNIT_WATER:
-                self.client.set_water_level(Level)
-                self.update_selector(UNIT_WATER, Level, WATER_LEVELS)
-            elif Unit >= UNIT_ROOMS_START:
-                self.handle_room_command(Unit, Command, Level)
+                self.handle_water(Level)
             else:
-                Domoticz.Log("Unhandled command for unit {}".format(Unit))
+                Domoticz.Log('Unhandled command for unit {}'.format(Unit))
         except Exception as exc:
-            Domoticz.Error("Command failed: {}".format(exc))
-            self.update_error(str(exc))
+            Domoticz.Error('Command failed: {}'.format(exc))
+            self.update_error('Command failed: {}'.format(exc))
         finally:
             self.poll(force=True)
 
     def handle_control(self, level: int):
         if level == 10:
-            self.client.start()
+            self.api.call_action(self.did, self.bind_domain, ACTION['START'])
         elif level == 20:
-            self.client.pause()
+            self.api.call_action(self.did, self.bind_domain, ACTION['PAUSE'])
         elif level == 30:
-            self.client.dock()
+            self.api.call_action(self.did, self.bind_domain, ACTION['CHARGE'])
         elif level == 40:
-            self.client.stop()
+            self.api.call_action(self.did, self.bind_domain, ACTION['STOP'])
         elif level == 50:
-            self.client.locate()
-        self.update_selector(UNIT_CONTROL, level, CONTROL_LEVELS)
+            self.api.call_action(self.did, self.bind_domain, ACTION['LOCATE'])
+        self.update_selector(UNIT_CONTROL, level)
 
-    def handle_room_command(self, unit: int, command: str, level: int):
-        if command != "On":
-            return
-        room_name = Devices[unit].Name
-        room_id = self.rooms.get(room_name)
-        if not room_id:
-            Domoticz.Error("No room id configured for {}".format(room_name))
-            return
-        self.client.clean_room(room_id)
-        Devices[unit].Update(nValue=1, sValue="On")
-        time.sleep(1)
-        Devices[unit].Update(nValue=0, sValue="Off")
+    def handle_fan(self, level: int):
+        mapping = {10: 0, 20: 1, 30: 2, 40: 3}
+        if level in mapping:
+            p = PROP['SUCTION_LEVEL']
+            self.api.set_properties(self.did, self.bind_domain, [{'did': p['did'], 'siid': p['siid'], 'piid': p['piid'], 'value': mapping[level]}])
+            self.update_selector(UNIT_FAN, level)
+
+    def handle_water(self, level: int):
+        mapping = {10: 1, 20: 2, 30: 3}
+        if level in mapping:
+            p = PROP['WATER_VOLUME']
+            self.api.set_properties(self.did, self.bind_domain, [{'did': p['did'], 'siid': p['siid'], 'piid': p['piid'], 'value': mapping[level]}])
+            self.update_selector(UNIT_WATER, level)
 
     def poll(self, force: bool = False):
         now = time.time()
         if not force and now - self.last_poll < self.poll_interval:
             return
         self.last_poll = now
-
-        if not self.client:
+        if not self.api or not self.did:
             return
-
         try:
-            status = self.client.status()
-            self.log_debug("Status: {}".format(status))
+            # Cached cloud state first: lower load and works even if robot is sleeping.
+            status = self.api.read_basic_status(self.did, self.bind_domain, live=False)
+            self.log_debug('Status {}'.format(status))
             self.update_from_status(status)
         except Exception as exc:
-            Domoticz.Error("Polling failed: {}".format(exc))
-            self.update_error("Poll failed: {}".format(exc))
+            Domoticz.Error('Polling failed: {}'.format(exc))
+            self.update_error('Poll failed: {}'.format(exc))
 
     def update_from_status(self, status: Dict[str, Any]):
-        battery = status.get("battery")
+        battery = status.get('battery')
         if battery is not None and UNIT_BATTERY in Devices:
-            # Percentage device: nValue is always 0, sValue contains the value.
-            Devices[UNIT_BATTERY].Update(nValue=0, sValue=str(int(battery)))
-
-        state_text = status.get("state", "unknown")
-        status_level = self.map_state_to_level(state_text)
-        status_message = self.compose_status_message(status)
-        if status_message:
-            self.log_debug("Status info: {}".format(status_message))
-        if UNIT_STATUS in Devices:
-            # Selector Switch: nValue=0 (level 0) or 2 (level selected), sValue=level as a string.
-            nvalue = 0 if status_level == 0 else 2
-            Devices[UNIT_STATUS].Update(nValue=nvalue, sValue=str(status_level))
-
-        fan_power = status.get("fan_power")
-        fan_level = self.map_fan_to_level(fan_power)
-        if fan_level and UNIT_FAN in Devices:
-            self.update_selector(UNIT_FAN, fan_level, FAN_LEVELS)
-
-        error = status.get("error")
-        if error and error.lower() not in ("none", "no_error", "0"):
-            self.update_error(error)
+            Devices[UNIT_BATTERY].Update(nValue=0, sValue=str(battery))
+        level = self.map_state(status.get('state'), status.get('charging_status'))
+        self.update_selector(UNIT_STATUS, level)
+        fan = status.get('suction_level')
+        fan_level = {0:10,1:20,2:30,3:40}.get(fan, 0)
+        if fan_level:
+            self.update_selector(UNIT_FAN, fan_level)
+        water = status.get('water_volume')
+        water_level = {1:10,2:20,3:30}.get(water, 0)
+        if water_level:
+            self.update_selector(UNIT_WATER, water_level)
+        err = status.get('error')
+        err_label = status.get('error_label') or 'OK'
+        if err in (None, 0):
+            self.update_error('OK')
         else:
-            self.update_error("OK")
+            self.update_error(err_label)
+        details = 'State: {}; Battery: {}%; Area: {}; Time: {}; Task: {}'.format(
+            status.get('state_label'), battery, status.get('cleaned_area'), status.get('cleaning_time'), status.get('task_status'))
+        self.update_text(UNIT_DETAILS, details)
 
-    def compose_status_message(self, status: Dict[str, Any]) -> str:
-        parts = []
-        if status.get("battery") is not None:
-            parts.append("Battery {}%".format(status["battery"]))
-        if status.get("clean_area") is not None:
-            parts.append("Area {}".format(status["clean_area"]))
-        if status.get("clean_time") is not None:
-            parts.append("Time {}".format(status["clean_time"]))
-        return ", ".join(parts) if parts else ""
+    def map_state(self, state, charging_status=None) -> int:
+        if state in (1,7,11,12,25,27,37,38,97,101,103,104,107):
+            return 20
+        if state in (3,21,23,95,99,102,108):
+            return 30
+        if state in (5,10,17,18,28,31):
+            return 40
+        if state in (6,13,24):
+            return 60
+        if state in (8,9,20,22,29,30,32,33,34,35,36,105,106):
+            return 50
+        if state == 4:
+            return 70
+        if state in (2,14,15,16):
+            return 10
+        return 0
 
     def create_devices(self):
-        self.ensure_selector(UNIT_STATUS, "Dreame Status", STATUS_LEVELS)
-        self.ensure_selector(UNIT_CONTROL, "Dreame Control", CONTROL_LEVELS)
-
+        self.ensure_selector(UNIT_STATUS, 'Dreame Status', STATUS_LEVELS)
+        self.ensure_selector(UNIT_CONTROL, 'Dreame Control', CONTROL_LEVELS)
         if UNIT_BATTERY not in Devices:
-            Domoticz.Device(Name="Dreame Battery", Unit=UNIT_BATTERY, TypeName="Percentage").Create()
-
-        self.ensure_selector(UNIT_FAN, "Dreame Fan Level", FAN_LEVELS)
-        self.ensure_selector(UNIT_WATER, "Dreame Water Level", WATER_LEVELS)
-
+            Domoticz.Device(Name='Dreame Battery', Unit=UNIT_BATTERY, TypeName='Percentage', Used=1).Create()
         if UNIT_ERROR not in Devices:
-            Domoticz.Device(Name="Dreame Error", Unit=UNIT_ERROR, TypeName="Text").Create()
-
-        unit = UNIT_ROOMS_START
-        for room_name in self.rooms.keys():
-            if unit not in Devices:
-                Domoticz.Device(Name=room_name, Unit=unit, TypeName="Switch", Used=1).Create()
-            unit += 1
+            Domoticz.Device(Name='Dreame Error', Unit=UNIT_ERROR, TypeName='Text', Used=1).Create()
+        self.ensure_selector(UNIT_FAN, 'Dreame Suction', FAN_LEVELS)
+        self.ensure_selector(UNIT_WATER, 'Dreame Water', WATER_LEVELS)
+        if UNIT_DETAILS not in Devices:
+            Domoticz.Device(Name='Dreame Details', Unit=UNIT_DETAILS, TypeName='Text', Used=1).Create()
 
     def ensure_selector(self, unit: int, name: str, levels: Dict[int, str]):
         if unit in Devices:
             return
-        level_names = "|".join(levels[level] for level in sorted(levels.keys()))
         Domoticz.Device(
             Name=name,
             Unit=unit,
-            TypeName="Selector Switch",
+            TypeName='Selector Switch',
             Switchtype=18,
             Image=7,
             Options={
-                "LevelActions": "|".join([""] * len(levels)),
-                "LevelNames": level_names,
-                "LevelOffHidden": "false",
-                "SelectorStyle": "0",
+                'LevelActions': '|'.join([''] * len(levels)),
+                'LevelNames': '|'.join(levels[k] for k in sorted(levels)),
+                'LevelOffHidden': 'false',
+                'SelectorStyle': '0',
             },
             Used=1,
         ).Create()
 
-    def update_selector(self, unit: int, level: int, levels: Dict[int, str]):
-        if unit not in Devices:
-            return
-        text = levels.get(level, "Unknown")
-        # Domoticz Selector Switch: nValue=0 (off/level 0), nValue=2 (level > 0 selected).
-        nvalue = 0 if level == 0 else 2
-        Devices[unit].Update(nValue=nvalue, sValue=str(level))
-        self.log_debug("Updated selector {} to {}".format(unit, text))
+    def update_selector(self, unit: int, level: int):
+        if unit in Devices:
+            Devices[unit].Update(nValue=0 if level == 0 else 2, sValue=str(level))
 
     def update_error(self, message: str):
-        if UNIT_ERROR in Devices:
-            Devices[UNIT_ERROR].Update(nValue=0, sValue=str(message)[:255])
+        self.update_text(UNIT_ERROR, str(message)[:255])
 
-    def map_state_to_level(self, state_text: str) -> int:
-        s = str(state_text).lower()
-        if "clean" in s or "sweep" in s:
-            return 20
-        if "pause" in s:
-            return 30
-        if "return" in s or "back" in s or "home" in s:
-            return 40
-        if "dock" in s:
-            return 50
-        if "charg" in s:
-            return 60
-        if "error" in s or "fault" in s:
-            return 70
-        if "idle" in s or "sleep" in s:
-            return 10
-        return 0
-
-    def map_fan_to_level(self, fan_power: Any) -> int:
-        try:
-            value = int(fan_power)
-        except Exception:
-            return 0
-        if value in (101, 10, 1):
-            return 10
-        if value in (102, 20, 2):
-            return 20
-        if value in (103, 30, 3):
-            return 30
-        if value in (104, 40, 4):
-            return 40
-        return 0
-
-    def parse_rooms(self, raw: str) -> Dict[str, int]:
-        rooms: Dict[str, int] = {}
-        if not raw:
-            return rooms
-        for part in raw.split(","):
-            part = part.strip()
-            if not part or ":" not in part:
-                continue
-            name, room_id = part.split(":", 1)
-            name = name.strip()
-            try:
-                rooms[name] = int(room_id.strip())
-            except ValueError:
-                Domoticz.Error("Invalid room id in config: {}".format(part))
-        return rooms
-
+    def update_text(self, unit: int, message: str):
+        if unit in Devices:
+            Devices[unit].Update(nValue=0, sValue=str(message)[:255])
 
 _plugin = BasePlugin()
 
-
 def onStart():
-    global _plugin
     _plugin.onStart()
 
-
 def onStop():
-    global _plugin
     _plugin.onStop()
 
-
 def onHeartbeat():
-    global _plugin
     _plugin.onHeartbeat()
 
-
 def onCommand(Unit, Command, Level, Hue):
-    global _plugin
     _plugin.onCommand(Unit, Command, Level, Hue)

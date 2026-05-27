@@ -1,37 +1,59 @@
-# Domoticz_dreame
+# Domoticz Dreame API plugin v90.5.2
 
-Domoticz plugin voor een Dreame robotstofzuiger (lokale aansturing via `python-miio`).
+Deze versie gebruikt **Dreame Home Cloud API**, niet Xiaomi, niet `python-miio`, en niet Home Assistant.
 
-## Setup en installatie
+Gebaseerd op de publiek zichtbare reverse-engineered Dreame Home API-vorm van de Homey Dreame Cloud app. Die app meldt expliciet dat hij via de Dreame Home cloud API werkt, alleen email/password-login ondersteunt, en o.a. X40/X30/L20/L10 ondersteunt. L40 zou dezelfde familie moeten zijn, maar Dreame kan endpoints wijzigen.
 
-1. **Kopieer de plugin naar Domoticz:** plaats `plugin.py` in `domoticz/plugins/domoticz-dreame-plus/plugin.py`.
-
-2. **Installeer dependency** (in dezelfde Python-omgeving als Domoticz):
-    ```bash
-    pip3 install python-miio
-    ```
-
-3. **Herstart Domoticz**
-
-4. **Voeg hardware toe in Domoticz**
-   - Type: `Dreame Plus Vacuum`
-   - Address: IP-adres van de robot
-   - Port: `54321`
-   - Mode1: token
-   - Mode2: polling interval (standaard `30`)
-   - Mode3: optioneel kamers, bv. `kitchen:1,living_room:2`
-
-## Token ophalen
-
-Na installatie van `python-miio` kun je het token ophalen met:
+## Installatie
 
 ```bash
-miiocli cloud
+cd /home/patrick/domoticz/plugins
+rm -rf dreame
+mkdir dreame
+cd dreame
+unzip /pad/naar/domoticz_dreame_api_v90_5.zip
+pip3 install -U requests
+sudo systemctl restart domoticz
 ```
 
-Daarna log je interactief in met je Xiaomi-account en zie je per device o.a.:
-- `Token`
-- `IP`
-- `Model`
+## Eerst buiten Domoticz testen
 
-Gebruik de gevonden `Token` in Domoticz bij **Mode1**.
+```bash
+cd /home/patrick/domoticz/plugins/dreame
+python3 test_login.py --username 'jouw@email.nl' --password 'jouwDreameWachtwoord' --country eu
+```
+
+Werkt je account met Google/Apple login? Stel dan in de DreameHome app eerst een wachtwoord in:
+Profile -> Settings -> Account and Security -> Password.
+
+## Domoticz instellingen
+
+- Mode1: Dreame Home email
+- Mode2: Dreame Home password
+- Mode3: regio, meestal `eu`
+- Mode4: device id optioneel; leeg = eerste vacuum
+- Mode5: poll interval, bv. `30`
+- Mode6: debug
+
+## Functies
+
+- Login via Dreame Home API
+- Device lijst ophalen
+- Status/batterij/error uitlezen via cloud cache met live command-relay fallback
+- Start / Pause / Dock / Stop / Locate via Dreame command relay
+- Zuigkracht en waterniveau via MIoT properties door Dreame cloud relay
+
+## Belangrijk
+
+Deze plugin gebruikt reverse-engineered cloud endpoints. Dreame kan deze zonder aankondiging wijzigen.
+
+
+## v90.5.2
+
+Fix voor DreameHome-only modellen die een lege cloud-cache (`raw: {}`) teruggeven. De plugin gebruikt nu automatisch live `get_properties` via de Dreame command relay en gebruikt per-property `did` waarden zoals de Dreame MIoT mapping verwacht.
+
+
+## v90.5.2
+- Confirmed DreameHome API login/device discovery/status path.
+- Fixed set_properties payload for suction and water to use the Dreame per-property did values.
+- No Xiaomi, no python-miio, no Home Assistant dependency.
