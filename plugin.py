@@ -232,23 +232,25 @@ class BasePlugin:
             Used=1,
         ).Create()
 
-    def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = '0', level_off_hidden: str = 'false'):
-        if unit in Devices:
-            return
-        Domoticz.Device(
-            Name=name,
-            Unit=unit,
-            TypeName='Selector Switch',
-            Switchtype=18,
-            Image=7,
-            Options={
-                'LevelActions': '|'.join([''] * len(levels)),
-                'LevelNames': '|'.join(levels[k] for k in sorted(levels)),
-                'LevelOffHidden': level_off_hidden,
-                'SelectorStyle': selector_style,
-            },
-            Used=1,
-        ).Create()
+    def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = '1', level_off_hidden: str = 'false'):
+        options = {
+            'LevelActions': '|'.join([''] * len(levels)),
+            'LevelNames': '|'.join(levels[k] for k in sorted(levels)),
+            'LevelOffHidden': level_off_hidden,
+            'SelectorStyle': selector_style,
+        }
+        if unit not in Devices:
+            Domoticz.Device(
+                Name=name,
+                Unit=unit,
+                TypeName='Selector Switch',
+                Switchtype=18,
+                Image=7,
+                Options=options,
+                Used=1,
+            ).Create()
+        else:
+            Devices[unit].UpdateOptions(options)
 
     def update_selector(self, unit: int, level: int):
         if unit in Devices:
