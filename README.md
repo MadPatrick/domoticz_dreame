@@ -23,7 +23,7 @@ This is a clean and complete plugin version for Dreame robot vacuums, including 
 ## Installation (Git)
 
 ```bash
-cd /path/to/domoticz/plugins
+cd /opt/domoticz/plugins
 sudo systemctl stop domoticz
 
 if [ -d dreame ]; then
@@ -36,6 +36,8 @@ pip3 install -U requests
 
 sudo systemctl start domoticz
 ```
+
+Adjust the plugin path above if your Domoticz installation uses a different location.
 
 ## Managing Rooms
 
@@ -72,6 +74,8 @@ For this model, rooms may not be returned by the normal API route. Possible opti
 ```bash
 python3 test_fastcommand_probe.py --username 'your_email@example.com' --password 'your_password' --country eu
 ```
+
+Security note: credentials passed directly on the command line can be stored in shell history or visible in process lists.
 
 2. Use app/log/proxy analysis to find segment IDs.
 
