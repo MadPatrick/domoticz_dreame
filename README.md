@@ -61,7 +61,9 @@ If your Dreame account was created with Google or Apple login, first set a passw
 - API behavior can change without notice if Dreame updates backend services.
 - Some Dreame Home-only models may return an empty cloud cache; this version automatically switches to live `get_properties` calls through the Dreame command relay.
 
-## Changelog (v90.5.2)
+## Changelog
+
+### v90.5.2
 
 - Confirmed Dreame Home API login, device discovery, and status path
 - Added fallback for models returning empty cloud cache (`raw: {}`)
