@@ -1,13 +1,11 @@
-# Domoticz Dreame API Plugin v0.8.1
+# Domoticz Dreame API Plugin
 
 This is a clean and complete plugin version for Dreame robot vacuums, including the Dreame L40 Ultra / `dreame.vacuum.r2492j`.
 
 ## Features
 
-- Working Dreame Home backend (based on the earlier stable `v90.5.2`)
-- No Xiaomi dependency
-- No `python-miio`
-- No Home Assistant dependency
+- Working Dreame Home backend
+- No Xiaomi dependency, `python-miio` or Home Assistant dependency
 - Model detection
 - Status, battery, error state, and details
 - Start / Pause / Dock / Stop / Locate commands
@@ -26,13 +24,7 @@ This is a clean and complete plugin version for Dreame robot vacuums, including 
 cd /opt/domoticz/plugins
 sudo systemctl stop domoticz
 
-if [ -d dreame ]; then
-  mv dreame dreame.backup.$(date +%Y%m%d_%H%M%S)
-fi
-
 git clone https://github.com/MadPatrick/Domoticz_dreame.git dreame
-cd dreame
-pip3 install -U requests
 
 sudo systemctl start domoticz
 ```
@@ -96,6 +88,3 @@ The room-clean payload uses:
 
 via Dreame `START_CUSTOM`. This is the most likely segment-clean route for this model generation, but firmware differences may apply.
 
-## v0.8.1
-
-- Device names now use the robot name from Dreame Home (example: Truus Status).
