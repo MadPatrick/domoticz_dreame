@@ -12,11 +12,6 @@ This is a clean and complete plugin version for Dreame robot vacuums, including 
 - Suction power selector
 - Water level selector
 - Room cache + Room Clean selector
-- Tools:
-  - `learn_room.py`
-  - `test_login.py`
-  - `dump_properties.py`
-  - `test_fastcommand_probe.py`
 
 ## Installation (Git)
 
