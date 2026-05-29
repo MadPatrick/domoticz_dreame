@@ -1,8 +1,8 @@
 """
 <plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.4" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <params>
-        <param field="Mode1" label="Dreame username" width="300px" required="true" default="" />
-        <param field="Mode2" label="Dreame password" width="300px" required="true" password="true" default="" />
+        <param field="Username" label="Dreame username" width="300px" required="true" default="" />
+        <param field="Password" label="Dreame password" width="300px" required="true" password="true" default="" />
         <param field="Mode3" label="Region" width="75px" required="true">
             <options>
                 <option label="EU" value="eu" default="true" />
@@ -219,8 +219,8 @@ class BasePlugin:
             Domoticz.Error("Dreame API import failed: {}".format(_IMPORT_ERROR))
             return
 
-        username = Parameters.get("Mode1", "").strip()
-        password = Parameters.get("Mode2", "")
+        username = Parameters.get("Username", "").strip()
+        password = Parameters.get("Password", "")
         country = (Parameters.get("Mode3", "eu") or "eu").strip().lower()
         wanted_did = Parameters.get("Mode4", "").strip() or None
         token_file = os.path.join(self.plugin_dir(), "dreame_token_cache.json")
