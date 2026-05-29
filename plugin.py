@@ -588,7 +588,10 @@ class BasePlugin:
         if task_state not in (None, ""):
             details.append(str(task_state))
         if progress is not None:
-            details.append("{}%".format(int(progress)))
+            try:
+                details.append("{}%".format(int(progress)))
+            except (TypeError, ValueError):
+                details.append("{}%".format(progress))
         if details and raw is not None:
             return "{} (raw={})".format(", ".join(details), raw)
         if details:
