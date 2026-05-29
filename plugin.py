@@ -17,7 +17,7 @@
             </options>
         </param>
         <param field="Mode4" label="Device ID / DID, optional" width="150px" required="false" default="" />
-        <param field="Mode5" label="Polling interval seconds" width="75px" required="false" default="30" />
+        <param field="Mode5" label="Polling interval seconds" width="75px" required="false" default="300" />
         <param field="Mode6" label="Debug" width="75px">
             <options>
                 <option label="False" value="False" default="true" />
