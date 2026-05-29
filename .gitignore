@@ -4,6 +4,4 @@ __pycache__/
 *$py.class
 
 # Runtime/generated plugin artifacts
-room_cache.json
-dreame_token_cache.json
-dreame_debug_dump.json
+*.json
