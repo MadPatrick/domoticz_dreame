@@ -565,7 +565,7 @@ class BasePlugin:
             parts = []
             for item in value:
                 if isinstance(item, dict):
-                    parts.append(", ".join("{}: {}".format(k, item.get(k)) for k in sorted(item)))
+                    parts.append(", ".join("{}: {}".format(k, item[k]) for k in sorted(item)))
                 else:
                     parts.append(str(item))
             return " | ".join(parts)[:255]
