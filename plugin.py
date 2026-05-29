@@ -72,6 +72,9 @@ UNIT_DND = 16
 UNIT_TASK_PROGRESS = 17
 UNIT_TIMEZONE = 18
 UNIT_CONSUMABLES = 19
+LEGACY_UNIT_TASK_JSON = 18
+LEGACY_UNIT_TIMEZONE = 19
+LEGACY_UNIT_CONSUMABLES = 20
 
 STATUS_LEVELS = {0: "Unknown", 10: "Idle", 20: "Cleaning", 30: "Paused", 40: "Returning", 50: "Docked", 60: "Charging", 70: "Error"}
 FAN_LEVELS = {0: "Unknown", 10: "Quiet", 20: "Standard", 30: "Strong", 40: "Turbo"}
@@ -90,6 +93,7 @@ TASK_STATUS_RAW_LABELS = {
     4: "Dock/Opladen",
 }
 ROOM_CACHE_FILE = "room_cache.json"
+ROOM_SYNC_INTERVAL_SECONDS = 300
 
 
 class RoomCache:
@@ -174,6 +178,7 @@ class BasePlugin:
         self.model_profile: Dict[str, Any] = {}
         self.poll_interval = 30
         self.last_poll = 0.0
+        self.last_room_sync = 0.0
         self.debug = False
         self.rooms: List[Dict[str, Any]] = []
         self.room_cache: Optional[RoomCache] = None
@@ -236,7 +241,7 @@ class BasePlugin:
             ))
             self.update_text(UNIT_MODEL, "{} ({})".format(profile_name, self.model))
             self.update_error("OK")
-            self.refresh_rooms()
+            self.refresh_rooms(force=True)
             self.write_debug_dump()
         except Exception as exc:
             self.api = None
@@ -252,7 +257,7 @@ class BasePlugin:
 
     def onHeartbeat(self):
         self.poll(force=False)
-        self.refresh_rooms()
+        self.refresh_rooms(force=False)
 
     def onCommand(self, Unit, Command, Level, Hue):
         self.log_debug("onCommand Unit={} Command={} Level={}".format(Unit, Command, Level))
@@ -405,7 +410,11 @@ class BasePlugin:
             Domoticz.Error("Polling failed for did={} bindDomain={}: {}".format(self.did, self.bind_domain, exc))
             self.update_error("Poll failed: {}".format(exc))
 
-    def refresh_rooms(self):
+    def refresh_rooms(self, force: bool = False):
+        now = time.time()
+        if not force and now - self.last_room_sync < ROOM_SYNC_INTERVAL_SECONDS:
+            return
+        self.last_room_sync = now
         if not self.room_cache:
             return
         api_rooms = []
@@ -544,23 +553,6 @@ class BasePlugin:
             return json.dumps(value, ensure_ascii=False, separators=(",", ":"))[:255]
         return str(value)[:255]
 
-    def format_task_json(self, value: Any) -> str:
-        value = self.parse_jsonish_text(value)
-        if isinstance(value, dict):
-            parts = []
-            for key in sorted(value):
-                parts.append("{}: {}".format(key, value.get(key)))
-            return " | ".join(parts)[:255]
-        if isinstance(value, list):
-            parts = []
-            for item in value:
-                if isinstance(item, dict):
-                    parts.append(", ".join("{}: {}".format(k, item[k]) for k in sorted(item)))
-                else:
-                    parts.append(str(item))
-            return " | ".join(parts)[:255]
-        return str(value)[:255]
-
     def parse_jsonish_text(self, value: Any) -> Any:
         if not isinstance(value, str):
             return value
@@ -665,6 +657,7 @@ class BasePlugin:
         return 0
 
     def create_devices(self):
+        self.migrate_legacy_units()
         if UNIT_STATUS not in Devices:
             Domoticz.Device(Name=self.device_prefix() + " Status", Unit=UNIT_STATUS, TypeName="Text", Used=1).Create()
         self.ensure_selector(UNIT_CONTROL, self.device_prefix() + " Control", CONTROL_LEVELS, level_off_hidden="true")
@@ -698,6 +691,23 @@ class BasePlugin:
         for idx, room in enumerate(self.rooms[:20], start=1):
             initial_room_levels[idx * 10] = str(room.get("name") or room.get("id"))
         self.ensure_selector(UNIT_ROOM_CLEAN, self.device_prefix() + " Room Clean", initial_room_levels, level_off_hidden="true")
+
+    def migrate_legacy_units(self):
+        if LEGACY_UNIT_CONSUMABLES not in Devices:
+            return
+        if LEGACY_UNIT_TASK_JSON not in Devices or LEGACY_UNIT_TIMEZONE not in Devices:
+            return
+        name_18 = str(getattr(Devices[LEGACY_UNIT_TASK_JSON], "Name", "")).lower()
+        name_19 = str(getattr(Devices[LEGACY_UNIT_TIMEZONE], "Name", "")).lower()
+        name_20 = str(getattr(Devices[LEGACY_UNIT_CONSUMABLES], "Name", "")).lower()
+        if "task json" not in name_18 or "timezone" not in name_19 or "consumables" not in name_20:
+            return
+        for unit in (LEGACY_UNIT_TASK_JSON, LEGACY_UNIT_TIMEZONE, LEGACY_UNIT_CONSUMABLES):
+            try:
+                Devices[unit].Delete()
+            except Exception as exc:
+                Domoticz.Log("Could not delete legacy unit {}: {}".format(unit, exc))
+        Domoticz.Log("Legacy units 18/19/20 migrated to new numbering")
 
     def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = "0", level_off_hidden: str = "false"):
         options = {
