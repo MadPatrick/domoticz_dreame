@@ -244,7 +244,7 @@ class BasePlugin:
             self.update_text(UNIT_MODEL, "{} ({})".format(profile_name, self.model))
             self.update_error("OK")
             self.refresh_rooms(force=True)
-            self.write_debug_dump()
+            #self.write_debug_dump()
         except Exception as exc:
             self.api = None
             Domoticz.Error("Dreame API init failed: {}".format(exc))
@@ -463,12 +463,7 @@ class BasePlugin:
         return data
 
     def learn_from_status(self, status: Dict[str, Any]):
-        # Keep latest status dump for analysis of map/task values.
-        try:
-            with open(os.path.join(self.plugin_dir(), "dreame_last_status.json"), "w", encoding="utf-8") as f:
-                json.dump(status, f, indent=2, ensure_ascii=False, default=str)
-        except Exception:
-            pass
+        pass
 
     def update_rooms_devices(self):
         if not self.rooms:
