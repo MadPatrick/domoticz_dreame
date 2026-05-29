@@ -72,9 +72,6 @@ UNIT_DND = 16
 UNIT_TASK_PROGRESS = 17
 UNIT_TIMEZONE = 18
 UNIT_CONSUMABLES = 19
-LEGACY_UNIT_TASK_JSON = 18
-LEGACY_UNIT_TIMEZONE = 19
-LEGACY_UNIT_CONSUMABLES = 20
 
 STATUS_LEVELS = {0: "Unknown", 10: "Idle", 20: "Cleaning", 30: "Paused", 40: "Returning", 50: "Docked", 60: "Charging", 70: "Error"}
 FAN_LEVELS = {0: "Unknown", 10: "Quiet", 20: "Standard", 30: "Strong", 40: "Turbo"}
@@ -693,21 +690,26 @@ class BasePlugin:
         self.ensure_selector(UNIT_ROOM_CLEAN, self.device_prefix() + " Room Clean", initial_room_levels, level_off_hidden="true")
 
     def migrate_legacy_units(self):
-        if LEGACY_UNIT_CONSUMABLES not in Devices:
+        legacy_units = (
+            (18, "task json"),
+            (19, "timezone"),
+            (20, "consumables"),
+        )
+        to_delete = []
+        for unit, label in legacy_units:
+            if unit not in Devices:
+                continue
+            name = str(getattr(Devices[unit], "Name", "")).lower()
+            if label in name:
+                to_delete.append(unit)
+        if not to_delete:
             return
-        if LEGACY_UNIT_TASK_JSON not in Devices or LEGACY_UNIT_TIMEZONE not in Devices:
-            return
-        name_18 = str(getattr(Devices[LEGACY_UNIT_TASK_JSON], "Name", "")).lower()
-        name_19 = str(getattr(Devices[LEGACY_UNIT_TIMEZONE], "Name", "")).lower()
-        name_20 = str(getattr(Devices[LEGACY_UNIT_CONSUMABLES], "Name", "")).lower()
-        if "task json" not in name_18 or "timezone" not in name_19 or "consumables" not in name_20:
-            return
-        for unit in (LEGACY_UNIT_TASK_JSON, LEGACY_UNIT_TIMEZONE, LEGACY_UNIT_CONSUMABLES):
+        for unit in to_delete:
             try:
                 Devices[unit].Delete()
             except Exception as exc:
                 Domoticz.Log("Could not delete legacy unit {}: {}".format(unit, exc))
-        Domoticz.Log("Legacy units 18/19/20 migrated to new numbering")
+        Domoticz.Log("Legacy units migrated to new numbering: {}".format(",".join(str(u) for u in to_delete)))
 
     def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = "0", level_off_hidden: str = "false"):
         options = {
