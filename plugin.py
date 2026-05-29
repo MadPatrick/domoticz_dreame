@@ -1,9 +1,9 @@
 """
-<plugin key="DreameAPI" name="Dreame API Vacuum" author="MadPatrick" version="0.8.1" wikilink="" externallink="">
+<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick + ChatGPT" version="0.9.3-miot" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <params>
-        <param field="Mode1" label="Dreame Home email" width="260px" required="true" default="" />
-        <param field="Mode2" label="Dreame Home password" width="260px" required="true" default="" password="true" />
-        <param field="Mode3" label="Region" width="100px" required="true">
+        <param field="Mode1" label="Dreame username" width="300px" required="true" default="" />
+        <param field="Mode2" label="Dreame password" width="300px" required="true" password="true" default="" />
+        <param field="Mode3" label="Region" width="75px" required="true">
             <options>
                 <option label="EU" value="eu" default="true" />
                 <option label="DE" value="de" />
@@ -16,15 +16,15 @@
                 <option label="I2" value="i2" />
             </options>
         </param>
-        <param field="Mode4" label="Device ID (optional)" width="220px" required="false" default="" />
-        <param field="Mode5" label="Poll seconds" width="80px" required="false" default="30" />
+        <param field="Mode4" label="Device ID / DID, optional" width="150px" required="false" default="" />
+        <param field="Mode5" label="Polling interval seconds" width="75px" required="false" default="30" />
         <param field="Mode6" label="Debug" width="75px">
             <options>
                 <option label="False" value="False" default="true" />
                 <option label="True" value="True" />
             </options>
         </param>
-        <param field="Mode7" label="Room refresh seconds" width="110px" required="false" default="300" />
+        <param field="Mode7" label="Room refresh interval seconds" width="75px" required="false" default="300" />
     </params>
 </plugin>
 """
@@ -66,11 +66,21 @@ UNIT_ROOM_CLEAN = 9
 UNIT_MODEL = 10
 UNIT_CONTROL_LEGACY = 11
 UNIT_CONTROL_LEGACY_OLD = 12
+UNIT_CHARGING = 13
+UNIT_CLEANING_MODE = 14
+UNIT_TASK_STATUS = 15
+UNIT_DND = 16
+UNIT_TASK_PROGRESS = 17
+UNIT_TASK_JSON = 18
+UNIT_MAP_OBJECT = 19
+UNIT_TIMEZONE = 20
+UNIT_VOICE = 21
+UNIT_CONSUMABLES = 22
 
-STATUS_LEVELS = {0:'Unknown',10:'Idle',20:'Cleaning',30:'Paused',40:'Returning',50:'Docked',60:'Charging',70:'Error'}
-FAN_LEVELS = {0:'Unknown',10:'Quiet',20:'Standard',30:'Strong',40:'Turbo'}
-WATER_LEVELS = {0:'Unknown',10:'Low',20:'Medium',30:'High'}
-CONTROL_LEVELS = {0:'Off',10:'Start',20:'Pause',30:'Dock',40:'Stop',50:'Locate'}
+STATUS_LEVELS = {0: "Unknown", 10: "Idle", 20: "Cleaning", 30: "Paused", 40: "Returning", 50: "Docked", 60: "Charging", 70: "Error"}
+FAN_LEVELS = {0: "Unknown", 10: "Quiet", 20: "Standard", 30: "Strong", 40: "Turbo"}
+WATER_LEVELS = {0: "Unknown", 10: "Low", 20: "Medium", 30: "High"}
+CONTROL_LEVELS = {0: "Off", 10: "Start", 20: "Pause", 30: "Dock", 40: "Stop", 50: "Locate"}
 
 ROOM_CACHE_FILE = "room_cache.json"
 
@@ -162,11 +172,14 @@ class BasePlugin:
         self.debug = False
         self.rooms: List[Dict[str, Any]] = []
         self.room_cache: Optional[RoomCache] = None
+        self.pending_fan_until = 0
+        self.pending_fan_level = None
+        self.pending_water_until = 0
+        self.pending_water_level = None
 
     def log_debug(self, msg: str):
         if self.debug:
             Domoticz.Debug(str(msg))
-
 
     def device_prefix(self) -> str:
         if self.device:
@@ -183,14 +196,13 @@ class BasePlugin:
 
         self.poll_interval = int(Parameters.get("Mode5", "30") or 30)
         self.room_refresh_interval = int(Parameters.get("Mode7", "300") or 300)
-
         self.room_cache = RoomCache(os.path.join(self.plugin_dir(), ROOM_CACHE_FILE), logger=self.log_debug)
         self.rooms = self.room_cache.load()
 
         self.create_devices()
         self.update_rooms_devices()
-        Domoticz.Log("Starting Dreame API plugin")
 
+        Domoticz.Log("Starting Dreame API MIOT plugin")
         if DreameApi is None:
             self.update_error("Import failed: {}".format(_IMPORT_ERROR))
             Domoticz.Error("Dreame API import failed: {}".format(_IMPORT_ERROR))
@@ -206,14 +218,11 @@ class BasePlugin:
             self.api = DreameApi(username, password, country, token_file=token_file, logger=self.log_debug)
             self.api.login()
             self.device = self.api.select_device(wanted_did)
-
             self.did = str(self.device.get("did") or self.device.get("deviceId") or self.device.get("id"))
             self.bind_domain = self.api.get_bind_domain(self.device)
             self.model = str(self.device.get("model") or "default")
             self.model_profile = get_model_profile(self.model)
-
             profile_name = self.model_profile.get("name", "Generic Dreame")
-
             Domoticz.Log("Dreame API connected. Device: {} did={} model={} profile={} bindDomain={}".format(
                 self.device.get("name") or self.device.get("customName") or "Dreame",
                 self.did,
@@ -221,7 +230,6 @@ class BasePlugin:
                 profile_name,
                 self.bind_domain,
             ))
-
             self.update_text(UNIT_MODEL, "{} ({})".format(profile_name, self.model))
             self.update_error("OK")
             self.refresh_rooms(force=True)
@@ -235,7 +243,7 @@ class BasePlugin:
         self.poll(force=True)
 
     def onStop(self):
-        Domoticz.Log("Dreame API plugin stopped")
+        Domoticz.Log("Dreame API MIOT plugin stopped")
         Domoticz.Debugging(0)
 
     def onHeartbeat(self):
@@ -248,7 +256,6 @@ class BasePlugin:
             Domoticz.Error("Dreame API not connected (Unit={} Command={} Level={})".format(Unit, Command, Level))
             self.update_error("Not connected")
             return
-
         try:
             if Unit in (UNIT_CONTROL, UNIT_CONTROL_LEGACY):
                 actions = {10: "START", 20: "PAUSE", 30: "CHARGE", 40: "STOP", 50: "LOCATE"}
@@ -258,6 +265,8 @@ class BasePlugin:
                 self.handle_fan(Level)
             elif Unit == UNIT_WATER:
                 self.handle_water(Level)
+            elif Unit == UNIT_DND:
+                self.handle_dnd(Command, Level)
             elif Unit == UNIT_ROOM_CLEAN:
                 self.handle_room_clean(Level)
             else:
@@ -266,25 +275,74 @@ class BasePlugin:
             Domoticz.Error("Command failed: {}".format(exc))
             self.update_error("Command failed: {}".format(exc))
         finally:
-            self.poll(force=True)
+            if Unit not in (UNIT_FAN, UNIT_WATER):
+                self.poll(force=True)
 
     def handle_control(self, action_name: str):
         action = ACTION.get(action_name)
         if not action:
-            Domoticz.Error("Action {} is not available in dreame_api ACTION mapping; first check device firmware compatibility, then update dreame_api if needed".format(action_name))
+            Domoticz.Error("Action {} is not available in dreame_api ACTION mapping".format(action_name))
             return
         self.api.call_action(self.did, self.bind_domain, action)
 
     def handle_fan(self, level: int):
-        mapping = {10: 0, 20: 1, 30: 2, 40: 3}
-        if level not in mapping:
-            Domoticz.Error("Unsupported fan level: {}".format(level))
+        try:
+            level = int(level)
+        except Exception:
+            Domoticz.Error("Invalid fan level: {}".format(level))
             return
+
+        Domoticz.Log(
+            "handle_fan called with Domoticz level={}".format(level)
+        )
+
+        mapping = {
+            10: 1,
+            20: 2,
+            30: 3,
+            40: 4,
+        }
+
+        dreame_value = mapping.get(level)
+
+        if dreame_value is None:
+            Domoticz.Error(
+                "Unsupported fan level: {}".format(level)
+            )
+            return
+
         p = PROP.get("SUCTION_LEVEL")
+
         if not p:
-            Domoticz.Error("SUCTION_LEVEL property not found; check device compatibility or update dreame_api library (fan level: {})".format(level))
+            Domoticz.Error(
+                "SUCTION_LEVEL property not found"
+            )
             return
-        self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": mapping[level]}])
+
+        payload = [{
+            "did": p["did"],
+            "siid": p["siid"],
+            "piid": p["piid"],
+            "value": dreame_value
+        }]
+
+        Domoticz.Log(
+            "Sending suction payload: {}".format(payload)
+        )
+
+        result = self.api.set_properties(
+            self.did,
+            self.bind_domain,
+            payload
+        )
+
+        Domoticz.Log(
+            "Set suction result: {}".format(result)
+        )
+
+        self.pending_fan_level = level
+        self.pending_fan_until = time.time() + 15
+
         self.update_selector(UNIT_FAN, level)
 
     def handle_water(self, level: int):
@@ -294,10 +352,19 @@ class BasePlugin:
             return
         p = PROP.get("WATER_VOLUME")
         if not p:
-            Domoticz.Error("WATER_VOLUME property not found; check device compatibility or update dreame_api library (water level: {})".format(level))
+            Domoticz.Error("WATER_VOLUME property not found")
             return
         self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": mapping[level]}])
         self.update_selector(UNIT_WATER, level)
+
+    def handle_dnd(self, command: str, level: int):
+        p = PROP.get("DND_ENABLED")
+        if not p:
+            Domoticz.Error("DND_ENABLED property not found")
+            return
+        value = command == "On" or level > 0
+        self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": value}])
+        self.update_switch(UNIT_DND, value)
 
     def handle_room_clean(self, level: int):
         room = self.room_for_level(level)
@@ -306,19 +373,14 @@ class BasePlugin:
             return
         room_id = int(room["id"])
         room_name = room.get("name") or str(room_id)
-
         Domoticz.Log("Starting room clean: {} ({})".format(room_name, room_id))
-
-        # Dreame segment-clean payload used by L/X family MIOT action fallback.
-        # If this changes for a firmware, only this payload needs adjustment.
         action = ACTION.get("START_CUSTOM") or ACTION.get("START")
         if not action:
-            Domoticz.Error("Neither START_CUSTOM nor START action is available in dreame_api ACTION mapping")
+            Domoticz.Error("Neither START_CUSTOM nor START action is available")
             self.update_error("Room clean action unavailable")
             return
         payload = [{"piid": 1, "value": json.dumps([[room_id, 1, 1]])}]
         self.api.call_action(self.did, self.bind_domain, action, in_params=payload)
-
         self.update_selector(UNIT_ROOM_CLEAN, level)
         self.update_text(UNIT_DETAILS, "Room clean started: {}".format(room_name))
 
@@ -330,7 +392,8 @@ class BasePlugin:
         if not self.api or not self.did:
             return
         try:
-            status = self.api.read_basic_status(self.did, self.bind_domain, live=False)
+            # Use live MIOT properties by default. This is confirmed working on the L40 Ultra.
+            status = self.api.read_basic_status(self.did, self.bind_domain, live=True)
             self.log_debug("Status {}".format(status))
             self.update_from_status(status)
             self.learn_from_status(status)
@@ -345,34 +408,27 @@ class BasePlugin:
         self.last_room_refresh = now
         if not self.room_cache:
             return
-
         api_rooms = []
         if self.api and self.did:
             try:
                 api_rooms = self.get_rooms_from_api()
             except Exception as exc:
-                Domoticz.Error("Room API discovery failed for did={} bindDomain={}: {}".format(self.did, self.bind_domain, exc))
                 self.log_debug("Room API discovery failed: {}".format(exc))
-
         if api_rooms:
             self.room_cache.replace_rooms(api_rooms, source="api")
             self.rooms = self.room_cache.load()
             self.update_rooms_devices()
             Domoticz.Log("Dreame rooms loaded from API/cache: {}".format(", ".join(r.get("name", str(r.get("id"))) for r in self.rooms)))
             return
-
         cached = self.room_cache.load()
         self.rooms = cached
         self.update_rooms_devices()
-
         if cached:
             self.update_text(UNIT_ROOMS_TEXT, "Cached: " + ", ".join(r.get("name", str(r.get("id"))) for r in cached)[:245])
         else:
             self.update_text(UNIT_ROOMS_TEXT, "No rooms learned yet. Use learn_room.py")
 
     def get_rooms_from_api(self) -> List[Dict[str, Any]]:
-        # Keep this generic. New Dreame models often hide map/room data behind different services.
-        # If the backend later gets get_rooms/get_map_rooms/read_rooms, this plugin will use it.
         for method in ("get_rooms", "get_map_rooms", "read_rooms"):
             if hasattr(self.api, method):
                 try:
@@ -382,7 +438,6 @@ class BasePlugin:
                         return rooms
                 except Exception as exc:
                     self.log_debug("Room method {} failed: {}".format(method, exc))
-
         return []
 
     def extract_rooms(self, data: Any) -> Any:
@@ -397,18 +452,19 @@ class BasePlugin:
         return data
 
     def learn_from_status(self, status: Dict[str, Any]):
-        # Placeholder for future real auto-learning. Current L40 status properties do not expose
-        # room/segment IDs directly. We still write last status to debug dump for analysis.
-        pass
+        # Keep latest status dump for analysis of map/task values.
+        try:
+            with open(os.path.join(self.plugin_dir(), "dreame_last_status.json"), "w", encoding="utf-8") as f:
+                json.dump(status, f, indent=2, ensure_ascii=False, default=str)
+        except Exception:
+            pass
 
     def update_rooms_devices(self):
         if not self.rooms:
             self.update_text(UNIT_ROOMS_TEXT, "No rooms learned yet. Use learn_room.py")
             return
-
         names = [str(r.get("name") or r.get("id")) for r in self.rooms]
         self.update_text(UNIT_ROOMS_TEXT, ", ".join(names)[:255])
-
         levels = {0: "Off"}
         for idx, room in enumerate(self.rooms[:20], start=1):
             levels[idx * 10] = str(room.get("name") or room.get("id"))
@@ -428,15 +484,28 @@ class BasePlugin:
             Devices[UNIT_BATTERY].Update(nValue=0, sValue=str(battery))
 
         level = self.map_state(status.get("state"), status.get("charging_status"))
-        self.update_text(UNIT_STATUS, STATUS_LEVELS.get(level, "Unknown"))
+        self.update_text(UNIT_STATUS, "{} ({})".format(STATUS_LEVELS.get(level, "Unknown"), status.get("state_label")))
 
         fan = status.get("suction_level")
-        fan_level = {0:10,1:20,2:30,3:40}.get(fan, 0)
-        if fan_level:
-            self.update_selector(UNIT_FAN, fan_level)
+        fan_level = {1: 10, 2: 20, 3: 30, 4: 40}.get(fan, 0)
+
+        if self.pending_fan_until and time.time() < self.pending_fan_until:
+            Domoticz.Log(
+                "Skipping fan overwrite during pending sync. "
+                "Reported={} pending={}".format(
+                    fan_level,
+                    self.pending_fan_level
+                )
+            )
+        else:
+            self.pending_fan_until = 0
+            self.pending_fan_level = None
+
+            if fan_level:
+                self.update_selector(UNIT_FAN, fan_level)
 
         water = status.get("water_volume")
-        water_level = {1:10,2:20,3:30}.get(water, 0)
+        water_level = {1: 10, 2: 20, 3: 30}.get(water, 0)
         if water_level:
             self.update_selector(UNIT_WATER, water_level)
 
@@ -444,24 +513,50 @@ class BasePlugin:
         err_label = status.get("error_label") or "OK"
         self.update_error("OK" if err in (None, 0) else err_label)
 
-        details = "State: {}; Battery: {}%; Area: {}; Time: {}; Task: {}".format(
-            status.get("state_label"), battery, status.get("cleaned_area"), status.get("cleaning_time"), status.get("task_status"))
+        self.update_text(UNIT_CHARGING, "{}".format(status.get("charging_status")))
+        self.update_text(UNIT_CLEANING_MODE, "{}".format(status.get("cleaning_mode")))
+        self.update_text(UNIT_TASK_STATUS, "{}".format(status.get("task_status")))
+        self.update_switch(UNIT_DND, bool(status.get("dnd_enabled")))
+        if status.get("task_progress") is not None and UNIT_TASK_PROGRESS in Devices:
+            Devices[UNIT_TASK_PROGRESS].Update(nValue=int(status.get("task_progress") or 0), sValue=str(int(status.get("task_progress") or 0)))
+        self.update_text(UNIT_TASK_JSON, self.compact(status.get("task_json")))
+        self.update_text(UNIT_MAP_OBJECT, self.compact(status.get("map_object")))
+        self.update_text(UNIT_TIMEZONE, str(status.get("timezone")))
+        voice = "{} vol={} supported={}".format(status.get("voice_language"), status.get("volume"), status.get("voice_supported"))
+        self.update_text(UNIT_VOICE, voice)
+        consumables = "9.1={} 9.2={} 9.3={}".format(status.get("consumable_9_1"), status.get("consumable_9_2"), status.get("consumable_9_3"))
+        self.update_text(UNIT_CONSUMABLES, consumables)
+
+        details = "State: {}; Battery: {}%; Area: {}; Time: {}; Task: {}; Suction: {}; Water: {}".format(
+            status.get("state_label"),
+            battery,
+            status.get("cleaned_area"),
+            status.get("cleaning_time"),
+            status.get("task_status"),
+            status.get("suction_level"),
+            status.get("water_volume"),
+        )
         self.update_text(UNIT_DETAILS, details)
 
+    def compact(self, value: Any) -> str:
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False, separators=(",", ":"))[:255]
+        return str(value)[:255]
+
     def map_state(self, state, charging_status=None) -> int:
-        if state in (1,7,11,12,25,27,37,38,97,101,103,104,107):
+        if state in (1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107):
             return 20
-        if state in (3,21,23,95,99,102,108):
+        if state in (3, 21, 23, 95, 99, 102, 108):
             return 30
-        if state in (5,10,17,18,28,31):
+        if state in (5, 10, 17, 18, 28, 31):
             return 40
-        if state in (6,13,24):
+        if state in (6, 13, 24):
             return 60
-        if state in (8,9,20,22,29,30,32,33,34,35,36,105,106):
+        if state in (8, 9, 20, 22, 29, 30, 32, 33, 34, 35, 36, 105, 106):
             return 50
         if state == 4:
             return 70
-        if state in (2,14,15,16):
+        if state in (2, 14, 15, 16):
             return 10
         return 0
 
@@ -479,16 +574,29 @@ class BasePlugin:
             Domoticz.Device(Name=self.device_prefix() + " Error", Unit=UNIT_ERROR, TypeName="Text", Used=1).Create()
         self.ensure_selector(UNIT_FAN, self.device_prefix() + " Suction", FAN_LEVELS)
         self.ensure_selector(UNIT_WATER, self.device_prefix() + " Water", WATER_LEVELS)
-        if UNIT_DETAILS not in Devices:
-            Domoticz.Device(Name=self.device_prefix() + " Details", Unit=UNIT_DETAILS, TypeName="Text", Used=1).Create()
-        if UNIT_ROOMS_TEXT not in Devices:
-            Domoticz.Device(Name=self.device_prefix() + " Rooms", Unit=UNIT_ROOMS_TEXT, TypeName="Text", Used=1).Create()
+        for unit, name in [
+            (UNIT_DETAILS, "Details"),
+            (UNIT_ROOMS_TEXT, "Rooms"),
+            (UNIT_MODEL, "Model"),
+            (UNIT_CHARGING, "Charging Status"),
+            (UNIT_CLEANING_MODE, "Cleaning Mode"),
+            (UNIT_TASK_STATUS, "Task Status"),
+            (UNIT_TASK_JSON, "Task JSON"),
+            (UNIT_MAP_OBJECT, "Map Object"),
+            (UNIT_TIMEZONE, "Timezone"),
+            (UNIT_VOICE, "Voice"),
+            (UNIT_CONSUMABLES, "Consumables"),
+        ]:
+            if unit not in Devices:
+                Domoticz.Device(Name=self.device_prefix() + " " + name, Unit=unit, TypeName="Text", Used=1).Create()
+        if UNIT_DND not in Devices:
+            Domoticz.Device(Name=self.device_prefix() + " DND", Unit=UNIT_DND, TypeName="Switch", Used=1).Create()
+        if UNIT_TASK_PROGRESS not in Devices:
+            Domoticz.Device(Name=self.device_prefix() + " Task Progress", Unit=UNIT_TASK_PROGRESS, TypeName="Percentage", Used=1).Create()
         initial_room_levels = {0: "Off"}
         for idx, room in enumerate(self.rooms[:20], start=1):
             initial_room_levels[idx * 10] = str(room.get("name") or room.get("id"))
         self.ensure_selector(UNIT_ROOM_CLEAN, self.device_prefix() + " Room Clean", initial_room_levels, level_off_hidden="true")
-        if UNIT_MODEL not in Devices:
-            Domoticz.Device(Name=self.device_prefix() + " Model", Unit=UNIT_MODEL, TypeName="Text", Used=1).Create()
 
     def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = "0", level_off_hidden: str = "false"):
         options = {
@@ -497,33 +605,22 @@ class BasePlugin:
             "LevelOffHidden": level_off_hidden,
             "SelectorStyle": selector_style,
         }
-
         if unit not in Devices:
             Domoticz.Device(Name=name, Unit=unit, TypeName="Selector Switch", Switchtype=18, Image=7, Options=options, Used=1).Create()
             return
-
         if hasattr(Devices[unit], "UpdateOptions"):
             try:
                 Devices[unit].UpdateOptions(options)
             except Exception as exc:
                 Domoticz.Log("Could not update selector options for {}: {}".format(name, exc))
-        else:
-            current_options = getattr(Devices[unit], "Options", {})
-            current_normalized = {str(k): str(v) for k, v in current_options.items()}
-            wanted_normalized = {str(k): str(v) for k, v in options.items()}
-            changed = current_normalized != wanted_normalized
-            if not changed:
-                return
-            try:
-                Devices[unit].Delete()
-                Domoticz.Device(Name=name, Unit=unit, TypeName="Selector Switch", Switchtype=18, Image=7, Options=options, Used=1).Create()
-                Domoticz.Log("Recreated selector {} to apply changed options".format(name))
-            except Exception as exc:
-                Domoticz.Log("Could not recreate selector {}: {}".format(name, exc))
 
     def update_selector(self, unit: int, level: int):
         if unit in Devices:
             Devices[unit].Update(nValue=0 if level == 0 else 2, sValue=str(level))
+
+    def update_switch(self, unit: int, value: bool):
+        if unit in Devices:
+            Devices[unit].Update(nValue=1 if value else 0, sValue="On" if value else "Off")
 
     def update_error(self, message: str):
         self.update_text(UNIT_ERROR, str(message)[:255])
@@ -551,14 +648,18 @@ class BasePlugin:
 
 _plugin = BasePlugin()
 
+
 def onStart():
     _plugin.onStart()
+
 
 def onStop():
     _plugin.onStop()
 
+
 def onHeartbeat():
     _plugin.onHeartbeat()
+
 
 def onCommand(Unit, Command, Level, Hue):
     _plugin.onCommand(Unit, Command, Level, Hue)
