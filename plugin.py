@@ -1,5 +1,5 @@
 """
-<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick + ChatGPT" version="0.9.3-miot" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
+<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.4" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <params>
         <param field="Mode1" label="Dreame username" width="300px" required="true" default="" />
         <param field="Mode2" label="Dreame password" width="300px" required="true" password="true" default="" />
@@ -530,10 +530,10 @@ class BasePlugin:
             Devices[UNIT_TASK_PROGRESS].Update(nValue=int(status.get("task_progress") or 0), sValue=str(int(status.get("task_progress") or 0)))
         self.update_text(UNIT_TASK_JSON, self.format_task_json(status.get("task_json")))
         self.update_text(UNIT_TIMEZONE, str(status.get("timezone")))
-        consumables = "Main brush: {}\nSide brush: {}\nFilter: {}".format(
-            status.get("consumable_9_1"),
-            status.get("consumable_9_2"),
-            status.get("consumable_9_3"),
+        consumables = "Hoofdborstel: {} | Zijborstel: {} | Filter: {}".format(
+            status.get("main_brush"),
+            status.get("side_brush"),
+            status.get("filter"),
         )
         self.update_text(UNIT_CONSUMABLES, consumables)
 
