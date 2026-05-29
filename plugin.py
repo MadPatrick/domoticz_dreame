@@ -607,8 +607,8 @@ class BasePlugin:
             return str(value)
         mode_label = CLEANING_MODE_LABELS.get(ivalue)
         if mode_label:
-            return "{} ({} / 0x{:X})".format(mode_label, ivalue, ivalue)
-        return "{} (0x{:X})".format(ivalue, ivalue)
+            return mode_label
+        return str(ivalue)
 
     def format_task_status(self, status: Dict[str, Any]) -> str:
         raw = status.get("task_status")
