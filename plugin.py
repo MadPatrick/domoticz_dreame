@@ -611,7 +611,7 @@ class BasePlugin:
             pass
 
         if raw == 0 and (task_state in (None, "", "idle")):
-            return "Geen actieve schoonmaaktaak"
+            return "Geen actieve taak"
 
         labels = {
             "idle": "Stand-by",
