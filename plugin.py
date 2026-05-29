@@ -72,10 +72,8 @@ UNIT_TASK_STATUS = 15
 UNIT_DND = 16
 UNIT_TASK_PROGRESS = 17
 UNIT_TASK_JSON = 18
-UNIT_MAP_OBJECT = 19
-UNIT_TIMEZONE = 20
-UNIT_VOICE = 21
-UNIT_CONSUMABLES = 22
+UNIT_TIMEZONE = 19
+UNIT_CONSUMABLES = 20
 
 STATUS_LEVELS = {0: "Unknown", 10: "Idle", 20: "Cleaning", 30: "Paused", 40: "Returning", 50: "Docked", 60: "Charging", 70: "Error"}
 FAN_LEVELS = {0: "Unknown", 10: "Quiet", 20: "Standard", 30: "Strong", 40: "Turbo"}
@@ -520,10 +518,7 @@ class BasePlugin:
         if status.get("task_progress") is not None and UNIT_TASK_PROGRESS in Devices:
             Devices[UNIT_TASK_PROGRESS].Update(nValue=int(status.get("task_progress") or 0), sValue=str(int(status.get("task_progress") or 0)))
         self.update_text(UNIT_TASK_JSON, self.compact(status.get("task_json")))
-        self.update_text(UNIT_MAP_OBJECT, self.compact(status.get("map_object")))
         self.update_text(UNIT_TIMEZONE, str(status.get("timezone")))
-        voice = "{} vol={} supported={}".format(status.get("voice_language"), status.get("volume"), status.get("voice_supported"))
-        self.update_text(UNIT_VOICE, voice)
         consumables = "9.1={} 9.2={} 9.3={}".format(status.get("consumable_9_1"), status.get("consumable_9_2"), status.get("consumable_9_3"))
         self.update_text(UNIT_CONSUMABLES, consumables)
 
@@ -639,9 +634,7 @@ class BasePlugin:
             (UNIT_CLEANING_MODE, "Cleaning Mode"),
             (UNIT_TASK_STATUS, "Task Status"),
             (UNIT_TASK_JSON, "Task JSON"),
-            (UNIT_MAP_OBJECT, "Map Object"),
             (UNIT_TIMEZONE, "Timezone"),
-            (UNIT_VOICE, "Voice"),
             (UNIT_CONSUMABLES, "Consumables"),
         ]:
             if unit not in Devices:
