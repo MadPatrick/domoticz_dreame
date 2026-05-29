@@ -72,6 +72,11 @@ UNIT_DND = 16
 UNIT_TASK_PROGRESS = 17
 UNIT_TIMEZONE = 18
 UNIT_CONSUMABLES = 19
+LEGACY_UNIT_SIGNATURES = (
+    (18, " task json"),
+    (19, " timezone"),
+    (20, " consumables"),
+)
 
 STATUS_LEVELS = {0: "Unknown", 10: "Idle", 20: "Cleaning", 30: "Paused", 40: "Returning", 50: "Docked", 60: "Charging", 70: "Error"}
 FAN_LEVELS = {0: "Unknown", 10: "Quiet", 20: "Standard", 30: "Strong", 40: "Turbo"}
@@ -690,17 +695,12 @@ class BasePlugin:
         self.ensure_selector(UNIT_ROOM_CLEAN, self.device_prefix() + " Room Clean", initial_room_levels, level_off_hidden="true")
 
     def migrate_legacy_units(self):
-        legacy_units = (
-            (18, "task json"),
-            (19, "timezone"),
-            (20, "consumables"),
-        )
         to_delete = []
-        for unit, label in legacy_units:
+        for unit, expected_suffix in LEGACY_UNIT_SIGNATURES:
             if unit not in Devices:
                 continue
             name = str(getattr(Devices[unit], "Name", "")).lower()
-            if label in name:
+            if name.endswith(expected_suffix):
                 to_delete.append(unit)
         if not to_delete:
             return
@@ -709,7 +709,7 @@ class BasePlugin:
                 Devices[unit].Delete()
             except Exception as exc:
                 Domoticz.Log("Could not delete legacy unit {}: {}".format(unit, exc))
-        Domoticz.Log("Legacy units migrated to new numbering: {}".format(",".join(str(u) for u in to_delete)))
+        Domoticz.Log("Deleted legacy units with old numbering: {}".format(",".join(str(u) for u in to_delete)))
 
     def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = "0", level_off_hidden: str = "false"):
         options = {
