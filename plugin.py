@@ -563,7 +563,7 @@ class BasePlugin:
             for _ in range(2):
                 try:
                     decoded = json.loads(current)
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     break
                 if isinstance(decoded, str):
                     current = decoded
@@ -576,7 +576,7 @@ class BasePlugin:
             return "Unknown"
         try:
             ivalue = int(value)
-        except Exception:
+        except (TypeError, ValueError):
             return str(value)
         return "{} (0x{:X})".format(ivalue, ivalue)
 

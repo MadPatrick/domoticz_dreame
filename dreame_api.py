@@ -687,7 +687,7 @@ class DreameApi:
             for _ in range(2):
                 try:
                     decoded = json.loads(current)
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     break
                 if isinstance(decoded, str):
                     current = decoded
