@@ -70,10 +70,10 @@ UNIT_CLEANING_MODE = 14
 UNIT_TASK_STATUS = 15
 UNIT_DND = 16
 UNIT_TASK_PROGRESS = 17
-UNIT_TIMEZONE = 18
 UNIT_CONSUMABLES = 19
 LEGACY_UNIT_SIGNATURES = (
     (18, " task json"),
+    (18, " timezone"),
     (19, " timezone"),
     (20, " consumables"),
 )
@@ -525,7 +525,6 @@ class BasePlugin:
         self.update_switch(UNIT_DND, bool(status.get("dnd_enabled")))
         if status.get("task_progress") is not None and UNIT_TASK_PROGRESS in Devices:
             Devices[UNIT_TASK_PROGRESS].Update(nValue=int(status.get("task_progress") or 0), sValue=str(int(status.get("task_progress") or 0)))
-        self.update_text(UNIT_TIMEZONE, str(status.get("timezone")))
         consumables = "Hoofdborstel: {} | Zijborstel: {} | Filter: {}".format(
             status.get("main_brush"),
             status.get("side_brush"),
@@ -675,7 +674,6 @@ class BasePlugin:
             (UNIT_CHARGING, "Charging Status"),
             (UNIT_CLEANING_MODE, "Cleaning Mode"),
             (UNIT_TASK_STATUS, "Task Status"),
-            (UNIT_TIMEZONE, "Timezone"),
             (UNIT_CONSUMABLES, "Consumables"),
         ]:
             if unit not in Devices:
