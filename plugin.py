@@ -1,5 +1,5 @@
 """
-<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.4" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
+<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.5" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <params>
         <param field="Username" label="Dreame username" width="300px" required="true" default="" />
         <param field="Password" label="Dreame password" width="300px" required="true" password="true" default="" />
@@ -211,8 +211,8 @@ class BasePlugin:
         self.room_cache = RoomCache(os.path.join(self.plugin_dir(), ROOM_CACHE_FILE), logger=self.log_debug)
         self.rooms = self.room_cache.load()
 
-        self.create_devices()
-        self.update_rooms_devices()
+        # Devices are created after the Dreame device is selected, so the
+        # Domoticz device names can use the real robot name, e.g. "Truus".
 
         Domoticz.Log("Starting Dreame API MIOT plugin")
         if DreameApi is None:
@@ -242,6 +242,9 @@ class BasePlugin:
                 profile_name,
                 self.bind_domain,
             ))
+            self.create_devices()
+            self.rename_existing_devices_with_prefix()
+            self.update_rooms_devices()
             self.update_text(UNIT_MODEL, "{} ({})".format(profile_name, self.model))
             self.update_error("OK")
             self.refresh_rooms(force=True)
@@ -652,6 +655,43 @@ class BasePlugin:
         if state in (2, 14, 15, 16):
             return 10
         return 0
+
+
+    def rename_existing_devices_with_prefix(self):
+        prefix = self.device_prefix()
+        expected_suffixes = {
+            UNIT_STATUS: "Status",
+            UNIT_CONTROL: "Control",
+            UNIT_BATTERY: "Battery",
+            UNIT_ERROR: "Error",
+            UNIT_FAN: "Suction",
+            UNIT_WATER: "Water",
+            UNIT_DETAILS: "Details",
+            UNIT_ROOMS_TEXT: "Rooms",
+            UNIT_ROOM_CLEAN: "Room Clean",
+            UNIT_MODEL: "Model",
+            UNIT_CHARGING: "Charging Status",
+            UNIT_CLEANING_MODE: "Cleaning Mode",
+            UNIT_TASK_STATUS: "Task Status",
+            UNIT_DND: "DND",
+            UNIT_TASK_PROGRESS: "Task Progress",
+            UNIT_CONSUMABLES: "Consumables",
+        }
+        for unit, suffix in expected_suffixes.items():
+            if unit not in Devices:
+                continue
+            wanted = prefix + " " + suffix
+            current = str(getattr(Devices[unit], "Name", ""))
+            if current == wanted:
+                continue
+            # Only rename devices created by this plugin/fallback naming, not
+            # unrelated custom names that do not end with the expected suffix.
+            if current.endswith(" " + suffix) or current == suffix:
+                try:
+                    Devices[unit].Update(Name=wanted)
+                    Domoticz.Log("Renamed unit {} from '{}' to '{}'".format(unit, current, wanted))
+                except Exception as exc:
+                    Domoticz.Log("Could not rename unit {} to '{}': {}".format(unit, wanted, exc))
 
     def create_devices(self):
         self.migrate_legacy_units()
