@@ -86,7 +86,7 @@ CONTROL_LEVELS = {0: "Off", 10: "Start", 20: "Pause", 30: "Dock", 40: "Stop", 50
 CLEANING_MODE_LABELS = {
     5377: "Vacuum only",
     5378: "Vacuum + Mop",
-    5379: "Mop only? (confirm)",
+    5379: "Mop only",
 }
 TASK_STATUS_RAW_LABELS = {
     0: "Geen actieve taak",
@@ -496,6 +496,9 @@ class BasePlugin:
         level = self.map_state(status.get("state"), status.get("charging_status"))
         self.update_text(UNIT_STATUS, "{} ({})".format(STATUS_LEVELS.get(level, "Unknown"), status.get("state_label")))
 
+        control_level = {20: 10, 30: 20, 40: 30}.get(level, 0)
+        self.update_selector(UNIT_CONTROL, control_level)
+
         fan = status.get("suction_level")
         fan_level = {1: 10, 2: 20, 3: 30, 4: 40}.get(fan, 0)
 
@@ -607,14 +610,12 @@ class BasePlugin:
         raw = status.get("task_status")
         task_state = status.get("task_state")
         progress = status.get("task_progress")
+        state = status.get("state")
 
         try:
             raw = int(raw) if raw is not None else None
         except Exception:
             pass
-
-        if raw == 0 and (task_state in (None, "", "idle")):
-            return "Geen actieve taak"
 
         labels = {
             "idle": "Stand-by",
@@ -626,12 +627,29 @@ class BasePlugin:
             "drying": "Moppen drogen",
         }
 
-        if task_state:
+        # Use task_json state only when it actively describes what the robot is doing
+        if task_state and str(task_state).lower() not in ("idle", ""):
             label = labels.get(str(task_state).lower(), str(task_state))
             try:
                 return "{} ({}%)".format(label, int(progress or 0))
             except Exception:
                 return label
+
+        # task_json is idle or missing — derive from the main device state so that
+        # active cleaning/returning/paused states are not shown as "Stand-by"
+        cleaning_states = {1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107}
+        returning_states = {5, 10, 17, 18, 28, 31}
+        paused_states = {3, 21, 23, 95, 99, 102, 108}
+
+        if state in cleaning_states:
+            return "Schoonmaken ({}%)".format(int(progress or 0))
+        if state in returning_states:
+            return "Terug naar dock"
+        if state in paused_states:
+            return "Gepauzeerd ({}%)".format(int(progress or 0))
+
+        if raw == 0 or raw is None:
+            return "Geen actieve taak"
 
         raw_label = TASK_STATUS_RAW_LABELS.get(raw)
         if raw_label:
