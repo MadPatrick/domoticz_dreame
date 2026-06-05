@@ -614,11 +614,13 @@ class BasePlugin:
             ivalue = int(value)
         except (TypeError, ValueError):
             return "Unknown"
-        if ivalue in (1, 3):
+        if ivalue in (1, 3, 4):
             return "Charging"
         if ivalue in (0, 2):
             return "Not charging"
-        return "Unknown"
+        if ivalue == 5:
+            return "Charging complete"
+        return "Unknown ({})".format(ivalue)
 
     def format_task_status(self, status: Dict[str, Any]) -> str:
         raw = status.get("task_status")
