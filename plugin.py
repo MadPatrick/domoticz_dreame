@@ -652,7 +652,7 @@ class BasePlugin:
         # task_json is idle or missing — derive from the main device state so that
         # active cleaning/returning/paused states are not shown as "Stand-by"
         if state in STATES_CLEANING:
-            if progress:
+            if progress is not None and progress != 0:
                 return "Schoonmaken ({}%)".format(int(progress))
             # task_json reports 0 progress — fall back to cleaned_area / cleaning_time
             cleaned_area = status.get("cleaned_area")
