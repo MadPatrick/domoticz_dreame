@@ -728,7 +728,7 @@ class BasePlugin:
             # unrelated custom names that do not end with the expected suffix.
             if current.endswith(" " + suffix) or current == suffix:
                 try:
-                    Devices[unit].Update(Name=wanted)
+                    Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, Name=wanted)
                     Domoticz.Log("Renamed unit {} from '{}' to '{}'".format(unit, current, wanted))
                 except Exception as exc:
                     Domoticz.Log("Could not rename unit {} to '{}': {}".format(unit, wanted, exc))
