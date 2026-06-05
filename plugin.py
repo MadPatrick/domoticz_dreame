@@ -86,7 +86,7 @@ CONTROL_LEVELS = {0: "Off", 10: "Start", 20: "Pause", 30: "Dock", 40: "Stop", 50
 CLEANING_MODE_LABELS = {
     5377: "Vacuum only",
     5378: "Vacuum + Mop",
-    5379: "Mop only? (confirm)",
+    5379: "Mop only",
 }
 TASK_STATUS_RAW_LABELS = {
     0: "Geen actieve taak",
@@ -95,6 +95,13 @@ TASK_STATUS_RAW_LABELS = {
     3: "Terug naar dock",
     4: "Dock/Opladen",
 }
+# Device state codes returned by MIOT siid=2, piid=1 (STATE property), grouped by behaviour.
+STATES_CLEANING = frozenset({1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107})
+STATES_PAUSED = frozenset({3, 21, 23, 95, 99, 102, 108})
+STATES_RETURNING = frozenset({5, 10, 17, 18, 28, 31})
+STATES_CHARGING = frozenset({6, 13, 24})
+STATES_DOCKED = frozenset({8, 9, 20, 22, 29, 30, 32, 33, 34, 35, 36, 105, 106})
+STATES_IDLE = frozenset({2, 14, 15, 16})
 ROOM_CACHE_FILE = "room_cache.json"
 ROOM_SYNC_INTERVAL_SECONDS = 300
 
@@ -496,6 +503,11 @@ class BasePlugin:
         level = self.map_state(status.get("state"), status.get("charging_status"))
         self.update_text(UNIT_STATUS, "{} ({})".format(STATUS_LEVELS.get(level, "Unknown"), status.get("state_label")))
 
+        # Map STATUS_LEVELS (20=Cleaning, 30=Paused, 40=Returning) to CONTROL_LEVELS
+        # (10=Start, 20=Pause, 30=Dock). All other states leave the selector at Off (0).
+        control_level = {20: 10, 30: 20, 40: 30}.get(level, 0)
+        self.update_selector(UNIT_CONTROL, control_level)
+
         fan = status.get("suction_level")
         fan_level = {1: 10, 2: 20, 3: 30, 4: 40}.get(fan, 0)
 
@@ -607,14 +619,12 @@ class BasePlugin:
         raw = status.get("task_status")
         task_state = status.get("task_state")
         progress = status.get("task_progress")
+        state = status.get("state")
 
         try:
             raw = int(raw) if raw is not None else None
         except Exception:
             pass
-
-        if raw == 0 and (task_state in (None, "", "idle")):
-            return "Geen actieve taak"
 
         labels = {
             "idle": "Stand-by",
@@ -626,12 +636,25 @@ class BasePlugin:
             "drying": "Moppen drogen",
         }
 
-        if task_state:
+        # Use task_json state only when it actively describes what the robot is doing
+        if task_state and str(task_state).lower() not in ("idle", ""):
             label = labels.get(str(task_state).lower(), str(task_state))
             try:
                 return "{} ({}%)".format(label, int(progress or 0))
             except Exception:
                 return label
+
+        # task_json is idle or missing — derive from the main device state so that
+        # active cleaning/returning/paused states are not shown as "Stand-by"
+        if state in STATES_CLEANING:
+            return "Schoonmaken ({}%)".format(int(progress or 0))
+        if state in STATES_RETURNING:
+            return "Terug naar dock"
+        if state in STATES_PAUSED:
+            return "Gepauzeerd ({}%)".format(int(progress or 0))
+
+        if raw == 0 or raw is None:
+            return "Geen actieve taak"
 
         raw_label = TASK_STATUS_RAW_LABELS.get(raw)
         if raw_label:
@@ -640,19 +663,19 @@ class BasePlugin:
         return "Onbekend"
 
     def map_state(self, state, charging_status=None) -> int:
-        if state in (1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107):
+        if state in STATES_CLEANING:
             return 20
-        if state in (3, 21, 23, 95, 99, 102, 108):
+        if state in STATES_PAUSED:
             return 30
-        if state in (5, 10, 17, 18, 28, 31):
+        if state in STATES_RETURNING:
             return 40
-        if state in (6, 13, 24):
+        if state in STATES_CHARGING:
             return 60
-        if state in (8, 9, 20, 22, 29, 30, 32, 33, 34, 35, 36, 105, 106):
+        if state in STATES_DOCKED:
             return 50
         if state == 4:
             return 70
-        if state in (2, 14, 15, 16):
+        if state in STATES_IDLE:
             return 10
         return 0
 
