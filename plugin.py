@@ -95,6 +95,13 @@ TASK_STATUS_RAW_LABELS = {
     3: "Terug naar dock",
     4: "Dock/Opladen",
 }
+# Device state codes returned by MIOT siid=2, piid=1 (STATE property), grouped by behaviour.
+STATES_CLEANING = frozenset({1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107})
+STATES_PAUSED = frozenset({3, 21, 23, 95, 99, 102, 108})
+STATES_RETURNING = frozenset({5, 10, 17, 18, 28, 31})
+STATES_CHARGING = frozenset({6, 13, 24})
+STATES_DOCKED = frozenset({8, 9, 20, 22, 29, 30, 32, 33, 34, 35, 36, 105, 106})
+STATES_IDLE = frozenset({2, 14, 15, 16})
 ROOM_CACHE_FILE = "room_cache.json"
 ROOM_SYNC_INTERVAL_SECONDS = 300
 
@@ -496,6 +503,8 @@ class BasePlugin:
         level = self.map_state(status.get("state"), status.get("charging_status"))
         self.update_text(UNIT_STATUS, "{} ({})".format(STATUS_LEVELS.get(level, "Unknown"), status.get("state_label")))
 
+        # Map STATUS_LEVELS (20=Cleaning, 30=Paused, 40=Returning) to CONTROL_LEVELS
+        # (10=Start, 20=Pause, 30=Dock). All other states leave the selector at Off (0).
         control_level = {20: 10, 30: 20, 40: 30}.get(level, 0)
         self.update_selector(UNIT_CONTROL, control_level)
 
@@ -637,15 +646,11 @@ class BasePlugin:
 
         # task_json is idle or missing — derive from the main device state so that
         # active cleaning/returning/paused states are not shown as "Stand-by"
-        cleaning_states = {1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107}
-        returning_states = {5, 10, 17, 18, 28, 31}
-        paused_states = {3, 21, 23, 95, 99, 102, 108}
-
-        if state in cleaning_states:
+        if state in STATES_CLEANING:
             return "Schoonmaken ({}%)".format(int(progress or 0))
-        if state in returning_states:
+        if state in STATES_RETURNING:
             return "Terug naar dock"
-        if state in paused_states:
+        if state in STATES_PAUSED:
             return "Gepauzeerd ({}%)".format(int(progress or 0))
 
         if raw == 0 or raw is None:
@@ -658,19 +663,19 @@ class BasePlugin:
         return "Onbekend"
 
     def map_state(self, state, charging_status=None) -> int:
-        if state in (1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107):
+        if state in STATES_CLEANING:
             return 20
-        if state in (3, 21, 23, 95, 99, 102, 108):
+        if state in STATES_PAUSED:
             return 30
-        if state in (5, 10, 17, 18, 28, 31):
+        if state in STATES_RETURNING:
             return 40
-        if state in (6, 13, 24):
+        if state in STATES_CHARGING:
             return 60
-        if state in (8, 9, 20, 22, 29, 30, 32, 33, 34, 35, 36, 105, 106):
+        if state in STATES_DOCKED:
             return 50
         if state == 4:
             return 70
-        if state in (2, 14, 15, 16):
+        if state in STATES_IDLE:
             return 10
         return 0
 
