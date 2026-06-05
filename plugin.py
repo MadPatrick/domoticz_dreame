@@ -540,7 +540,12 @@ class BasePlugin:
         self.update_text(UNIT_TASK_STATUS, self.format_task_status(status))
         self.update_switch(UNIT_DND, bool(status.get("dnd_enabled")))
         if status.get("task_progress") is not None and UNIT_TASK_PROGRESS in Devices:
-            Devices[UNIT_TASK_PROGRESS].Update(nValue=int(status.get("task_progress") or 0), sValue=str(int(status.get("task_progress") or 0)))
+            task_progress = int(status.get("task_progress") or 0)
+            # Fallback: when task_json reports 0 progress but robot is actively cleaning,
+            # use cleaned_area (m²) as a proxy so the device shows meaningful progress
+            if task_progress == 0 and status.get("state") in STATES_CLEANING:
+                task_progress = min(int(status.get("cleaned_area") or 0), 100)
+            Devices[UNIT_TASK_PROGRESS].Update(nValue=task_progress, sValue=str(task_progress))
         consumables = "Hoofdborstel: {} | Zijborstel: {} | Filter: {}".format(
             status.get("main_brush"),
             status.get("side_brush"),
@@ -647,7 +652,19 @@ class BasePlugin:
         # task_json is idle or missing — derive from the main device state so that
         # active cleaning/returning/paused states are not shown as "Stand-by"
         if state in STATES_CLEANING:
-            return "Schoonmaken ({}%)".format(int(progress or 0))
+            if progress:
+                return "Schoonmaken ({}%)".format(int(progress))
+            # task_json reports 0 progress — fall back to cleaned_area / cleaning_time
+            cleaned_area = status.get("cleaned_area")
+            cleaning_time = status.get("cleaning_time")
+            parts = []
+            if cleaned_area:
+                parts.append("{}m²".format(int(cleaned_area)))
+            if cleaning_time:
+                parts.append("{} min".format(int(cleaning_time)))
+            if parts:
+                return "Schoonmaken ({})".format(", ".join(parts))
+            return "Schoonmaken"
         if state in STATES_RETURNING:
             return "Terug naar dock"
         if state in STATES_PAUSED:
