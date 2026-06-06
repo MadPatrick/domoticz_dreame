@@ -1,5 +1,5 @@
 """
-<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.5" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
+<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.6" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <description>
         <br/><h2>Dreame API Vacuum</h2><br/>
         Version: 0.9.6
@@ -84,7 +84,24 @@ STATUS_LEVELS = {0: "Unknown", 10: "Idle", 20: "Cleaning", 30: "Paused", 40: "Re
 FAN_LEVELS = {0: "Unknown", 10: "Quiet", 20: "Standard", 30: "Strong", 40: "Turbo"}
 WATER_LEVELS = {0: "Unknown", 10: "Low", 20: "Medium", 30: "High"}
 CONTROL_LEVELS = {0: "Off", 10: "Start", 20: "Pause", 30: "Dock", 40: "Stop", 50: "Locate"}
-CLEANING_MODE_LABELS = {5377: "Vacuum only", 5378: "Vacuum + Mop", 5379: "Mop only"}
+
+CLEANING_MODE_LABELS = {
+    0: "Vacuum only",
+    1: "Vacuum + Mop",
+    2: "Mop only",
+    3: "Vacuum then Mop",
+    5377: "Vacuum only (Legacy)",
+    5378: "Vacuum + Mop (Legacy)",
+    5379: "Mop only (Legacy)",
+}
+
+TASK_STATUS_RAW_LABELS = {
+    0: "No active tasks",
+    1: "Active task",
+    2: "Pauzed",
+    3: "Return to dock",
+    4: "Dock/Loading",
+}
 
 STATES_CLEANING = frozenset({1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107})
 STATES_PAUSED = frozenset({3, 21, 23, 95, 99, 102, 108})
@@ -105,7 +122,7 @@ class BasePlugin:
         self.poll_interval = 30
         self.last_poll = 0.0
         self.debug = False
-        self.maps = {} # Wordt nu dynamisch gevuld vanuit de JSON cache
+        self.maps = {} 
 
     def log_debug(self, msg: str):
         if self.debug:
@@ -122,8 +139,6 @@ class BasePlugin:
     def load_maps_from_cache(self):
         """Laadt de kaarten dynamisch in vanuit map_cache.json."""
         cache_file = os.path.join(self.plugin_dir(), "map_cache.json")
-        
-        # Als het bestand nog niet bestaat, maken we een standaard opzetje aan met jouw kaarten
         if not os.path.exists(cache_file):
             default_data = {
                 "maps": [
@@ -134,11 +149,10 @@ class BasePlugin:
             try:
                 with open(cache_file, "w") as f:
                     json.dump(default_data, f, indent=2)
-                Domoticz.Log("Nieuw map_cache.json bestand aangemaakt met basiskaarten.")
+                Domoticz.Log("New map_cache.json created with default maps.")
             except Exception as e:
-                Domoticz.Error("Kon map_cache.json niet aanmaken: {}".format(e))
+                Domoticz.Error("Couldn't create map_cache.json : {}".format(e))
 
-        # Probeer het JSON-bestand te lezen
         try:
             with open(cache_file, "r") as f:
                 data = json.load(f)
@@ -149,13 +163,12 @@ class BasePlugin:
                         "id": int(item.get("id")),
                         "name": str(item.get("name"))
                     }
-            Domoticz.Log("Kaarten succesvol dynamisch geladen uit map_cache.json")
+            Domoticz.Log("Maps succesvol loaded from map_cache.json")
         except Exception as e:
-            Domoticz.Error("Fout bij het laden van map_cache.json: {}".format(e))
-            # Fallback mocht het bestand corrupt zijn
+            Domoticz.Error("Error with loading map_cache.json: {}".format(e))
             self.maps = {
-                10: {"id": 8, "name": "Kaart Begane Grond (8)"},
-                20: {"id": 9, "name": "Kaart Bovenverdieping (9)"}
+                10: {"id": 8, "name": "Livingroom"},
+                20: {"id": 9, "name": "2nd floor"}
             }
 
     def onStart(self):
@@ -164,13 +177,6 @@ class BasePlugin:
             Domoticz.Debugging(1)
 
         self.poll_interval = int(Parameters.get("Mode5", "30") or 30)
-
-        Domoticz.Log("Starting Dreame API Dynamic Map plugin")
-        if DreameApi is None:
-            self.update_error("Import failed: {}".format(_IMPORT_ERROR))
-            return
-
-        # Laad de kaarten uit de JSON cache
         self.load_maps_from_cache()
 
         username = Parameters.get("Username", "").strip()
@@ -262,11 +268,11 @@ class BasePlugin:
             return
         map_id = self.maps[level]["id"]
         map_name = self.maps[level]["name"]
-        Domoticz.Log("Wisselen naar Kaart-ID vanuit JSON: {} ({})".format(map_id, map_name))
+        Domoticz.Log("Change MAP-ID from JSON: {} ({})".format(map_id, map_name))
         
         action = ACTION.get("RECOVERY_MAP") or ACTION.get("SELECT_MAP") or ACTION.get("START")
         if not action:
-            Domoticz.Error("Geen geschikte kaart-actie gevonden in de API.")
+            Domoticz.Error("No valid MAP-ID found in API.")
             return
             
         payload = [{"piid": 1, "value": map_id}]
@@ -274,7 +280,7 @@ class BasePlugin:
             self.api.call_action(self.did, self.bind_domain, action, in_params=payload)
             self.update_selector(UNIT_ROOM_CLEAN, level)
         except Exception as e:
-            Domoticz.Error("Kaartwissel mislukt: {}".format(e))
+            Domoticz.Error("Maps change failed: {}".format(e))
 
     def poll(self, force: bool = False):
         now = time.time()
@@ -290,17 +296,18 @@ class BasePlugin:
             Domoticz.Error("Polling failed: {}".format(exc))
 
     def update_map_selector_device(self):
-        levels = {0: "Off"}
+        levels = {0: "Stand-by"}
         for level, data in sorted(self.maps.items()):
             levels[level] = data["name"]
-        self.ensure_selector(UNIT_ROOM_CLEAN, self.device_prefix() + " Map Select", levels, level_off_hidden="true")
+        self.ensure_selector(UNIT_ROOM_CLEAN, self.device_prefix() + " Map Select", levels, level_off_hidden="false")
 
     def update_from_status(self, status: Dict[str, Any]):
         battery = status.get("battery")
         if battery is not None and UNIT_BATTERY in Devices:
             Devices[UNIT_BATTERY].Update(nValue=0, sValue=str(battery))
 
-        level = self.map_state(status.get("state"), status.get("charging_status"))
+        state = status.get("state")
+        level = self.map_state(state, status.get("charging_status"))
         self.update_text(UNIT_STATUS, "{} ({})".format(STATUS_LEVELS.get(level, "Unknown"), status.get("state_label")))
 
         control_level = {20: 10, 30: 20, 40: 30}.get(level, 0)
@@ -325,29 +332,41 @@ class BasePlugin:
         self.update_text(UNIT_TASK_STATUS, self.format_task_status(status))
         self.update_switch(UNIT_DND, bool(status.get("dnd_enabled")))
         
-        # Dynamische feedback op basis van het live gerapporteerde cloud map-object
         map_obj = str(status.get("map_object") or "")
         active_map_id = "Onbekend"
         
-        for lvl, data in self.maps.items():
-            if "/{}".format(data["id"]) in map_obj:
-                active_map_id = data["name"]
-                self.update_selector(UNIT_ROOM_CLEAN, lvl)
-                break
-            
-        self.update_text(UNIT_ROOMS_TEXT, "Actieve kaart: {}".format(active_map_id))
+        # LOGICA: Toon alleen de actieve kaart als Truus daadwerkelijk bezig of gepauzeerd is
+        if state in STATES_CLEANING or state in STATES_PAUSED:
+            found_map = False
+            for lvl, data in self.maps.items():
+                if "/{}".format(data["id"]) in map_obj:
+                    active_map_id = data["name"]
+                    self.update_selector(UNIT_ROOM_CLEAN, lvl)
+                    found_map = True
+                    break
+            if not found_map:
+                self.update_selector(UNIT_ROOM_CLEAN, 0) # Off
+        else:
+            # Truus is in dock, laadt op, gaat naar dock of staat stand-by -> Zet selector op 'Off'
+            self.update_selector(UNIT_ROOM_CLEAN, 0)
 
-        consumables = "Hoofdborstel: {} | Zijborstel: {} | Filter: {}".format(status.get("main_brush"), status.get("side_brush"), status.get("filter"))
+        self.update_text(UNIT_ROOMS_TEXT, "Active Map: {}".format(active_map_id))
+
+        consumables = "Main brush: {} | Side brush: {} | Filter: {}".format(status.get("main_brush"), status.get("side_brush"), status.get("filter"))
         self.update_text(UNIT_CONSUMABLES, consumables)
 
-        details = "Map: {}; State: {}; Battery: {}%; Area: {}m²; Time: {} min".format(
+        details = "Map: {}; State: {}; Battery: {}%; Area: {}mÂ²; Time: {} min".format(
             active_map_id, status.get("state_label"), battery, status.get("cleaned_area"), status.get("cleaning_time")
         )
         self.update_text(UNIT_DETAILS, details)
 
     def format_cleaning_mode(self, value: Any) -> str:
         if value is None: return "Unknown"
-        return CLEANING_MODE_LABELS.get(int(value), str(value))
+        try:
+            ivalue = int(value)
+        except (TypeError, ValueError):
+            return str(value)
+        return CLEANING_MODE_LABELS.get(ivalue, str(ivalue))
 
     def format_charging_status(self, value: Any) -> str:
         if int(value or 0) in (1, 3, 4): return "Charging"
@@ -356,9 +375,9 @@ class BasePlugin:
 
     def format_task_status(self, status: Dict[str, Any]) -> str:
         state = status.get("state")
-        if state in STATES_CLEANING: return "Schoonmaken"
-        if state in STATES_RETURNING: return "Terug naar dock"
-        if state in STATES_PAUSED: return "Gepauzeerd"
+        if state in STATES_CLEANING: return "Cleaning"
+        if state in STATES_RETURNING: return "Return to Dock"
+        if state in STATES_PAUSED: return "Pauzed"
         return "Stand-by"
 
     def map_state(self, state, charging_status=None) -> int:
