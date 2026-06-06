@@ -73,11 +73,9 @@ UNIT_ROOM_CLEAN = UNIT_ROOMS_TEXT + 1
 UNIT_MODEL = UNIT_ROOM_CLEAN + 1
 UNIT_CONTROL_LEGACY = UNIT_MODEL + 1
 UNIT_CONTROL_LEGACY_OLD = UNIT_CONTROL_LEGACY + 1
-UNIT_CHARGING = UNIT_CONTROL_LEGACY_OLD + 1
-UNIT_CLEANING_MODE = UNIT_CHARGING + 1
+UNIT_CLEANING_MODE = UNIT_CONTROL_LEGACY_OLD + 1
 UNIT_TASK_STATUS = UNIT_CLEANING_MODE + 1
-UNIT_DND = UNIT_TASK_STATUS + 1
-UNIT_TASK_PROGRESS = UNIT_DND + 1
+UNIT_TASK_PROGRESS = UNIT_TASK_STATUS + 1  # Doortellen vanaf hier (was voorheen UNIT_DND + 1)
 UNIT_CONSUMABLES = UNIT_TASK_PROGRESS + 1
 
 STATUS_LEVELS = {0: "Unknown", 10: "Idle", 20: "Cleaning", 30: "Paused", 40: "Returning", 50: "Docked", 60: "Charging", 70: "Error"}
@@ -226,8 +224,6 @@ class BasePlugin:
                 self.handle_fan(Level)
             elif Unit == UNIT_WATER:
                 self.handle_water(Level)
-            elif Unit == UNIT_DND:
-                self.handle_dnd(Command, Level)
             elif Unit == UNIT_ROOM_CLEAN:
                 self.handle_map_change(Level)
         except Exception as exc:
@@ -255,13 +251,6 @@ class BasePlugin:
         if p and level in mapping:
             self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": mapping[level]}])
             self.update_selector(UNIT_WATER, level)
-
-    def handle_dnd(self, command: str, level: int):
-        p = PROP.get("DND_ENABLED")
-        if p:
-            value = command == "On" or level > 0
-            self.api.set_properties(self.did, self.bind_domain, [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": value}])
-            self.update_switch(UNIT_DND, value)
 
     def handle_map_change(self, level: int):
         if level not in self.maps:
@@ -327,15 +316,12 @@ class BasePlugin:
         err_label = status.get("error_label") or "OK"
         self.update_error("OK" if err in (None, 0) else err_label)
 
-        self.update_text(UNIT_CHARGING, self.format_charging_status(status.get("charging_status")))
         self.update_text(UNIT_CLEANING_MODE, self.format_cleaning_mode(status.get("cleaning_mode")))
         self.update_text(UNIT_TASK_STATUS, self.format_task_status(status))
-        self.update_switch(UNIT_DND, bool(status.get("dnd_enabled")))
         
         map_obj = str(status.get("map_object") or "")
-        active_map_id = "Onbekend"
+        active_map_id = "None"
         
-        # LOGICA: Toon alleen de actieve kaart als Truus daadwerkelijk bezig of gepauzeerd is
         if state in STATES_CLEANING or state in STATES_PAUSED:
             found_map = False
             for lvl, data in self.maps.items():
@@ -345,9 +331,8 @@ class BasePlugin:
                     found_map = True
                     break
             if not found_map:
-                self.update_selector(UNIT_ROOM_CLEAN, 0) # Off
+                self.update_selector(UNIT_ROOM_CLEAN, 0)
         else:
-            # Truus is in dock, laadt op, gaat naar dock of staat stand-by -> Zet selector op 'Off'
             self.update_selector(UNIT_ROOM_CLEAN, 0)
 
         self.update_text(UNIT_ROOMS_TEXT, "Active Map: {}".format(active_map_id))
@@ -355,7 +340,7 @@ class BasePlugin:
         consumables = "Main brush: {} | Side brush: {} | Filter: {}".format(status.get("main_brush"), status.get("side_brush"), status.get("filter"))
         self.update_text(UNIT_CONSUMABLES, consumables)
 
-        details = "Map: {}; State: {}; Battery: {}%; Area: {}mÂ²; Time: {} min".format(
+        details = "Map: {}; State: {}; Battery: {}%; Area: {}m2; Time: {} min".format(
             active_map_id, status.get("state_label"), battery, status.get("cleaned_area"), status.get("cleaning_time")
         )
         self.update_text(UNIT_DETAILS, details)
@@ -367,11 +352,6 @@ class BasePlugin:
         except (TypeError, ValueError):
             return str(value)
         return CLEANING_MODE_LABELS.get(ivalue, str(ivalue))
-
-    def format_charging_status(self, value: Any) -> str:
-        if int(value or 0) in (1, 3, 4): return "Charging"
-        if int(value or 0) in (0, 2): return "Not charging"
-        return "Charging complete" if int(value or 0) == 5 else "Unknown"
 
     def format_task_status(self, status: Dict[str, Any]) -> str:
         state = status.get("state")
@@ -394,8 +374,8 @@ class BasePlugin:
             UNIT_STATUS: "Status", UNIT_CONTROL: "Control", UNIT_BATTERY: "Battery",
             UNIT_ERROR: "Error", UNIT_FAN: "Suction", UNIT_WATER: "Water",
             UNIT_DETAILS: "Details", UNIT_ROOMS_TEXT: "Map Info", UNIT_ROOM_CLEAN: "Map Select",
-            UNIT_MODEL: "Model", UNIT_CHARGING: "Charging Status", UNIT_CLEANING_MODE: "Cleaning Mode",
-            UNIT_TASK_STATUS: "Task Status", UNIT_DND: "DND", UNIT_TASK_PROGRESS: "Task Progress",
+            UNIT_MODEL: "Model", UNIT_CLEANING_MODE: "Cleaning Mode",
+            UNIT_TASK_STATUS: "Task Status", UNIT_TASK_PROGRESS: "Task Progress",
             UNIT_CONSUMABLES: "Consumables",
         }
         for unit, suffix in expected_suffixes.items():
@@ -417,13 +397,11 @@ class BasePlugin:
         self.ensure_selector(UNIT_WATER, self.device_prefix() + " Water", WATER_LEVELS)
         for unit, name in [
             (UNIT_DETAILS, "Details"), (UNIT_ROOMS_TEXT, "Map Info"), (UNIT_MODEL, "Model"),
-            (UNIT_CHARGING, "Charging Status"), (UNIT_CLEANING_MODE, "Cleaning Mode"),
-            (UNIT_TASK_STATUS, "Task Status"), (UNIT_CONSUMABLES, "Consumables"),
+            (UNIT_CLEANING_MODE, "Cleaning Mode"), (UNIT_TASK_STATUS, "Task Status"), 
+            (UNIT_CONSUMABLES, "Consumables"),
         ]:
             if unit not in Devices:
                 Domoticz.Device(Name=self.device_prefix() + " " + name, Unit=unit, TypeName="Text", Used=1).Create()
-        if UNIT_DND not in Devices:
-            Domoticz.Device(Name=self.device_prefix() + " DND", Unit=UNIT_DND, TypeName="Switch", Used=1).Create()
         if UNIT_TASK_PROGRESS not in Devices:
             Domoticz.Device(Name=self.device_prefix() + " Task Progress", Unit=UNIT_TASK_PROGRESS, TypeName="Percentage", Used=1).Create()
         self.update_map_selector_device()
