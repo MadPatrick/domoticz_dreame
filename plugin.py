@@ -127,8 +127,8 @@ class BasePlugin:
         if not os.path.exists(cache_file):
             default_data = {
                 "maps": [
-                    {"id": 8, "name": "Kaart Begane Grond (8)", "level": 10},
-                    {"id": 9, "name": "Kaart Bovenverdieping (9)", "level": 20}
+                    {"id": 8, "name": "Livingroom", "level": 10},
+                    {"id": 9, "name": "2nd floor", "level": 20}
                 ]
             }
             try:
