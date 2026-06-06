@@ -1,5 +1,14 @@
 """
 <plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.5" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
+    <description>
+        <br/><h2>Dreame API Vacuum</h2><br/>
+        Version: 0.9.6
+        <br/>This plugin connects to Dreame Robot Vacuumcleaner to Domoticz.
+        <br/>Various devices are supported and accordingly controlable.
+        <br/>For new devices, please raise a ticket at the Github link above.
+        <h2><br/>Configuration</h2><br/>
+</description>
+
     <params>
         <param field="Username" label="Dreame username" width="300px" required="true" default="" />
         <param field="Password" label="Dreame password" width="300px" required="true" password="true" default="" />
@@ -218,9 +227,6 @@ class BasePlugin:
         self.room_cache = RoomCache(os.path.join(self.plugin_dir(), ROOM_CACHE_FILE), logger=self.log_debug)
         self.rooms = self.room_cache.load()
 
-        # Devices are created after the Dreame device is selected, so the
-        # Domoticz device names can use the real robot name, e.g. "Truus".
-
         Domoticz.Log("Starting Dreame API MIOT plugin")
         if DreameApi is None:
             self.update_error("Import failed: {}".format(_IMPORT_ERROR))
@@ -254,8 +260,7 @@ class BasePlugin:
             self.update_rooms_devices()
             self.update_text(UNIT_MODEL, "{} ({})".format(profile_name, self.model))
             self.update_error("OK")
-            self.refresh_rooms(force=True)
-            #self.write_debug_dump()
+            # refresh_rooms hier verwijderd om timing-conflicten tijdens het opstarten te voorkomen.
         except Exception as exc:
             self.api = None
             Domoticz.Error("Dreame API init failed: {}".format(exc))
@@ -270,7 +275,12 @@ class BasePlugin:
 
     def onHeartbeat(self):
         self.poll(force=False)
-        self.refresh_rooms(force=False)
+        # Als de actieve kamerlijst nog leeg is (bijv. bij eerste start), dwingen we direct een sync af
+        if not self.rooms:
+            self.log_debug("Kamers zijn leeg in actieve lijst. Geforceerde sync starten via cache/API...")
+            self.refresh_rooms(force=True)
+        else:
+            self.refresh_rooms(force=False)
 
     def onCommand(self, Unit, Command, Level, Hue):
         self.log_debug("onCommand Unit={} Command={} Level={}".format(Unit, Command, Level))
@@ -314,57 +324,26 @@ class BasePlugin:
             Domoticz.Error("Invalid fan level: {}".format(level))
             return
 
-        Domoticz.Log(
-            "handle_fan called with Domoticz level={}".format(level)
-        )
-
-        mapping = {
-            10: 1,
-            20: 2,
-            30: 3,
-            40: 4,
-        }
-
+        Domoticz.Log("handle_fan called with Domoticz level={}".format(level))
+        mapping = {10: 1, 20: 2, 30: 3, 40: 4}
         dreame_value = mapping.get(level)
 
         if dreame_value is None:
-            Domoticz.Error(
-                "Unsupported fan level: {}".format(level)
-            )
+            Domoticz.Error("Unsupported fan level: {}".format(level))
             return
 
         p = PROP.get("SUCTION_LEVEL")
-
         if not p:
-            Domoticz.Error(
-                "SUCTION_LEVEL property not found"
-            )
+            Domoticz.Error("SUCTION_LEVEL property not found")
             return
 
-        payload = [{
-            "did": p["did"],
-            "siid": p["siid"],
-            "piid": p["piid"],
-            "value": dreame_value
-        }]
-
-        Domoticz.Log(
-            "Sending suction payload: {}".format(payload)
-        )
-
-        result = self.api.set_properties(
-            self.did,
-            self.bind_domain,
-            payload
-        )
-
-        Domoticz.Log(
-            "Set suction result: {}".format(result)
-        )
+        payload = [{"did": p["did"], "siid": p["siid"], "piid": p["piid"], "value": dreame_value}]
+        Domoticz.Log("Sending suction payload: {}".format(payload))
+        result = self.api.set_properties(self.did, self.bind_domain, payload)
+        Domoticz.Log("Set suction result: {}".format(result))
 
         self.pending_fan_level = level
         self.pending_fan_until = time.time() + 15
-
         self.update_selector(UNIT_FAN, level)
 
     def handle_water(self, level: int):
@@ -414,7 +393,6 @@ class BasePlugin:
         if not self.api or not self.did:
             return
         try:
-            # Use live MIOT properties by default. This is confirmed working on the L40 Ultra.
             status = self.api.read_basic_status(self.did, self.bind_domain, live=True)
             self.log_debug("Status {}".format(status))
             self.update_from_status(status)
@@ -503,8 +481,6 @@ class BasePlugin:
         level = self.map_state(status.get("state"), status.get("charging_status"))
         self.update_text(UNIT_STATUS, "{} ({})".format(STATUS_LEVELS.get(level, "Unknown"), status.get("state_label")))
 
-        # Map STATUS_LEVELS (20=Cleaning, 30=Paused, 40=Returning) to CONTROL_LEVELS
-        # (10=Start, 20=Pause, 30=Dock). All other states leave the selector at Off (0).
         control_level = {20: 10, 30: 20, 40: 30}.get(level, 0)
         self.update_selector(UNIT_CONTROL, control_level)
 
@@ -512,17 +488,10 @@ class BasePlugin:
         fan_level = {1: 10, 2: 20, 3: 30, 4: 40}.get(fan, 0)
 
         if self.pending_fan_until and time.time() < self.pending_fan_until:
-            Domoticz.Log(
-                "Skipping fan overwrite during pending sync. "
-                "Reported={} pending={}".format(
-                    fan_level,
-                    self.pending_fan_level
-                )
-            )
+            Domoticz.Log("Skipping fan overwrite during pending sync. Reported={} pending={}".format(fan_level, self.pending_fan_level))
         else:
             self.pending_fan_until = 0
             self.pending_fan_level = None
-
             if fan_level:
                 self.update_selector(UNIT_FAN, fan_level)
 
@@ -539,13 +508,13 @@ class BasePlugin:
         self.update_text(UNIT_CLEANING_MODE, self.format_cleaning_mode(status.get("cleaning_mode")))
         self.update_text(UNIT_TASK_STATUS, self.format_task_status(status))
         self.update_switch(UNIT_DND, bool(status.get("dnd_enabled")))
+        
         if status.get("task_progress") is not None and UNIT_TASK_PROGRESS in Devices:
             task_progress = int(status.get("task_progress") or 0)
-            # Fallback: when task_json reports 0 progress but robot is actively cleaning,
-            # use cleaned_area (m²) as a proxy so the device shows meaningful progress
             if task_progress == 0 and status.get("state") in STATES_CLEANING:
                 task_progress = min(int(status.get("cleaned_area") or 0), 100)
             Devices[UNIT_TASK_PROGRESS].Update(nValue=task_progress, sValue=str(task_progress))
+            
         consumables = "Hoofdborstel: {} | Zijborstel: {} | Filter: {}".format(
             status.get("main_brush"),
             status.get("side_brush"),
@@ -643,7 +612,6 @@ class BasePlugin:
             "drying": "Moppen drogen",
         }
 
-        # Use task_json state only when it actively describes what the robot is doing
         if task_state and str(task_state).lower() not in ("idle", ""):
             label = labels.get(str(task_state).lower(), str(task_state))
             try:
@@ -651,12 +619,9 @@ class BasePlugin:
             except Exception:
                 return label
 
-        # task_json is idle or missing — derive from the main device state so that
-        # active cleaning/returning/paused states are not shown as "Stand-by"
         if state in STATES_CLEANING:
             if progress is not None and progress != 0:
                 return "Schoonmaken ({}%)".format(int(progress))
-            # task_json reports 0 progress — fall back to cleaned_area / cleaning_time
             cleaned_area = status.get("cleaned_area")
             cleaning_time = status.get("cleaning_time")
             parts = []
@@ -698,7 +663,6 @@ class BasePlugin:
             return 10
         return 0
 
-
     def rename_existing_devices_with_prefix(self):
         prefix = self.device_prefix()
         expected_suffixes = {
@@ -726,8 +690,6 @@ class BasePlugin:
             current = str(getattr(Devices[unit], "Name", ""))
             if current == wanted:
                 continue
-            # Only rename devices created by this plugin/fallback naming, not
-            # unrelated custom names that do not end with the expected suffix.
             if current.endswith(" " + suffix) or current == suffix:
                 try:
                     Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, Name=wanted)
@@ -799,12 +761,14 @@ class BasePlugin:
         }
         if unit not in Devices:
             Domoticz.Device(Name=name, Unit=unit, TypeName="Selector Switch", Switchtype=18, Image=7, Options=options, Used=1).Create()
-            return
-        if hasattr(Devices[unit], "UpdateOptions"):
-            try:
-                Devices[unit].UpdateOptions(options)
-            except Exception as exc:
-                Domoticz.Log("Could not update selector options for {}: {}".format(name, exc))
+        else:
+            if hasattr(Devices[unit], "UpdateOptions"):
+                try:
+                    # Gecorrigeerd: Overschrijf en update de opties geforceerd als de knop al bestaat
+                    Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, Options=options)
+                    Domoticz.Log("Selector opties succesvol bijgewerkt voor: " + name)
+                except Exception as exc:
+                    Domoticz.Log("Could not update selector options for {}: {}".format(name, exc))
 
     def update_selector(self, unit: int, level: int):
         if unit in Devices:
