@@ -41,17 +41,11 @@ Show room list:
 python3 learn_room.py list
 ```
 
-Add room:
+Edit maps:
 
 ```bash
-python3 learn_room.py add --id 16 --name "Kitchen"
-python3 learn_room.py add --id 17 --name "Living Room"
-```
-
-Delete room:
-
-```bash
-python3 learn_room.py delete --id 16
+Default maps are made in de file map_cache.json.
+You need to edit the JSON file file the correct ID and map names
 ```
 
 After changes, restart Domoticz.  
