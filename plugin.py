@@ -285,7 +285,7 @@ class BasePlugin:
             Domoticz.Error("Polling failed: {}".format(exc))
 
     def update_map_selector_device(self):
-        levels = {0: "Stand-by"}
+        levels = {0: "Docking"}
         for level, data in sorted(self.maps.items()):
             levels[level] = data["name"]
         self.ensure_selector(UNIT_ROOM_CLEAN, self.device_prefix() + " Map Select", levels, level_off_hidden="false")
