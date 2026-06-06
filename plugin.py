@@ -1,12 +1,10 @@
 """
-<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.6" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
+<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.7" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <description>
         <br/><h2>Dreame API Vacuum</h2><br/>
-        Version: 0.9.6
+        Version: 0.9.7
         <br/>This plugin connects to Dreame Robot Vacuumcleaner to Domoticz.
         <br/>Various devices are supported and accordingly controlable.
-        <br/>For new devices, please raise a ticket at the Github link above.
-        <h2><br/>Configuration</h2><br/>
 </description>
     <params>
         <param field="Username" label="Dreame username" width="300px" required="true" default="" />
@@ -39,7 +37,7 @@
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import Domoticz
 
@@ -50,9 +48,9 @@ except Exception as exc:
     DreameApiError = Exception
     PROP = {}
     ACTION = {}
-    _IMPORT_ERROR = exc
+    Domoticz.Log(f"dreame_api import failed, plugin will not function: {exc}")
 else:
-    _IMPORT_ERROR = None
+    pass
 
 try:
     from dreame_model_profiles import get_model_profile
@@ -60,7 +58,7 @@ except Exception:
     def get_model_profile(model):
         return {"profile_key": "default", "name": "Generic Dreame", "model": model or "unknown"}
 
-
+# Device Units definities
 UNIT_STATUS = 1
 UNIT_CONTROL = UNIT_STATUS + 1
 UNIT_BATTERY = UNIT_CONTROL + 1
@@ -69,13 +67,12 @@ UNIT_FAN = UNIT_ERROR + 1
 UNIT_WATER = UNIT_FAN + 1
 UNIT_DETAILS = UNIT_WATER + 1
 UNIT_ROOMS_TEXT = UNIT_DETAILS + 1
-UNIT_ROOM_CLEAN = UNIT_ROOMS_TEXT + 1 
+UNIT_ROOM_CLEAN = UNIT_ROOMS_TEXT + 1
 UNIT_MODEL = UNIT_ROOM_CLEAN + 1
 UNIT_CONTROL_LEGACY = UNIT_MODEL + 1
-UNIT_CONTROL_LEGACY_OLD = UNIT_CONTROL_LEGACY + 1
-UNIT_CLEANING_MODE = UNIT_CONTROL_LEGACY_OLD + 1
+UNIT_CLEANING_MODE = UNIT_CONTROL_LEGACY + 1
 UNIT_TASK_STATUS = UNIT_CLEANING_MODE + 1
-UNIT_TASK_PROGRESS = UNIT_TASK_STATUS + 1  # Doortellen vanaf hier (was voorheen UNIT_DND + 1)
+UNIT_TASK_PROGRESS = UNIT_TASK_STATUS + 1
 UNIT_CONSUMABLES = UNIT_TASK_PROGRESS + 1
 
 STATUS_LEVELS = {0: "Unknown", 10: "Idle", 20: "Cleaning", 30: "Paused", 40: "Returning", 50: "Docked", 60: "Charging", 70: "Error"}
@@ -91,14 +88,6 @@ CLEANING_MODE_LABELS = {
     5377: "Vacuum only (Legacy)",
     5378: "Vacuum + Mop (Legacy)",
     5379: "Mop only (Legacy)",
-}
-
-TASK_STATUS_RAW_LABELS = {
-    0: "No active tasks",
-    1: "Active task",
-    2: "Pauzed",
-    3: "Return to dock",
-    4: "Dock/Loading",
 }
 
 STATES_CLEANING = frozenset({1, 7, 11, 12, 25, 27, 37, 38, 97, 101, 103, 104, 107})
@@ -120,7 +109,7 @@ class BasePlugin:
         self.poll_interval = 30
         self.last_poll = 0.0
         self.debug = False
-        self.maps = {} 
+        self.maps = {}
 
     def log_debug(self, msg: str):
         if self.debug:
@@ -149,7 +138,7 @@ class BasePlugin:
                     json.dump(default_data, f, indent=2)
                 Domoticz.Log("New map_cache.json created with default maps.")
             except Exception as e:
-                Domoticz.Error("Couldn't create map_cache.json : {}".format(e))
+                Domoticz.Error(f"Couldn't create map_cache.json : {e}")
 
         try:
             with open(cache_file, "r") as f:
@@ -161,9 +150,9 @@ class BasePlugin:
                         "id": int(item.get("id")),
                         "name": str(item.get("name"))
                     }
-            Domoticz.Log("Maps succesvol loaded from map_cache.json")
+            Domoticz.Log("Maps successfully loaded from map_cache.json")
         except Exception as e:
-            Domoticz.Error("Error with loading map_cache.json: {}".format(e))
+            Domoticz.Error(f"Error with loading map_cache.json: {e}")
             self.maps = {
                 10: {"id": 8, "name": "Livingroom"},
                 20: {"id": 9, "name": "2nd floor"}
@@ -196,13 +185,15 @@ class BasePlugin:
             self.create_devices()
             self.rename_existing_devices_with_prefix()
             self.update_map_selector_device()
-            self.update_text(UNIT_MODEL, "{} ({})".format(profile_name, self.model))
+            self.update_text(UNIT_MODEL, f"{profile_name} ({self.model})")
             self.update_error("OK")
         except Exception as exc:
             self.api = None
-            Domoticz.Error("Dreame API init failed: {}".format(exc))
-            self.update_error("Init failed: {}".format(exc))
+            Domoticz.Error(f"Dreame API init failed: {exc}")
+            self.update_error(f"Init failed: {exc}")
 
+        # Heartbeat staat bewust op 10s zodat de plugin snel reageert op commando's.
+        # Het echte poll-interval (Mode5) wordt gecontroleerd in poll() via last_poll.
         Domoticz.Heartbeat(10)
         self.poll(force=True)
 
@@ -227,7 +218,7 @@ class BasePlugin:
             elif Unit == UNIT_ROOM_CLEAN:
                 self.handle_map_change(Level)
         except Exception as exc:
-            Domoticz.Error("Command failed: {}".format(exc))
+            Domoticz.Error(f"Command failed: {exc}")
         finally:
             if Unit not in (UNIT_FAN, UNIT_WATER):
                 self.poll(force=True)
@@ -257,7 +248,7 @@ class BasePlugin:
             return
         map_id = self.maps[level]["id"]
         map_name = self.maps[level]["name"]
-        Domoticz.Log("Change MAP-ID from JSON: {} ({})".format(map_id, map_name))
+        Domoticz.Log(f"Change MAP-ID from JSON: {map_id} ({map_name})")
         
         action = ACTION.get("RECOVERY_MAP") or ACTION.get("SELECT_MAP") or ACTION.get("START")
         if not action:
@@ -269,7 +260,7 @@ class BasePlugin:
             self.api.call_action(self.did, self.bind_domain, action, in_params=payload)
             self.update_selector(UNIT_ROOM_CLEAN, level)
         except Exception as e:
-            Domoticz.Error("Maps change failed: {}".format(e))
+            Domoticz.Error(f"Maps change failed: {e}")
 
     def poll(self, force: bool = False):
         now = time.time()
@@ -282,22 +273,29 @@ class BasePlugin:
             status = self.api.read_basic_status(self.did, self.bind_domain, live=True)
             self.update_from_status(status)
         except Exception as exc:
-            Domoticz.Error("Polling failed: {}".format(exc))
+            Domoticz.Error(f"Polling failed: {exc}")
 
     def update_map_selector_device(self):
         levels = {0: "Docking"}
         for level, data in sorted(self.maps.items()):
             levels[level] = data["name"]
-        self.ensure_selector(UNIT_ROOM_CLEAN, self.device_prefix() + " Map Select", levels, level_off_hidden="false")
+        self.ensure_selector(UNIT_ROOM_CLEAN, f"{self.device_prefix()} Map Select", levels, level_off_hidden="false")
 
     def update_from_status(self, status: Dict[str, Any]):
         battery = status.get("battery")
         if battery is not None and UNIT_BATTERY in Devices:
-            Devices[UNIT_BATTERY].Update(nValue=0, sValue=str(battery))
+            try:
+                Devices[UNIT_BATTERY].Update(nValue=0, sValue=str(battery))
+            except Exception as exc:
+                self.log_debug(f"Failed to update battery device: {exc}")
 
         state = status.get("state")
         level = self.map_state(state, status.get("charging_status"))
-        self.update_text(UNIT_STATUS, "{} ({})".format(STATUS_LEVELS.get(level, "Unknown"), status.get("state_label")))
+        
+        # Opgelost via Unicode escape-volgorde (\u00b2) in plaats van fysiek teken:
+        state_label = str(status.get("state_label") or "Unknown").replace("\u00b2", "2")
+        status_text = f"{STATUS_LEVELS.get(level, 'Unknown')} ({state_label})"
+        self.update_text(UNIT_STATUS, status_text)
 
         control_level = {20: 10, 30: 20, 40: 30}.get(level, 0)
         self.update_selector(UNIT_CONTROL, control_level)
@@ -317,7 +315,10 @@ class BasePlugin:
         self.update_error("OK" if err in (None, 0) else err_label)
 
         self.update_text(UNIT_CLEANING_MODE, self.format_cleaning_mode(status.get("cleaning_mode")))
-        self.update_text(UNIT_TASK_STATUS, self.format_task_status(status))
+        
+        # Opgelost via Unicode escape-volgorde (\u00b2):
+        task_status_text = self.format_task_status(status).replace("\u00b2", "2")
+        self.update_text(UNIT_TASK_STATUS, task_status_text)
         
         map_obj = str(status.get("map_object") or "")
         active_map_id = "None"
@@ -325,7 +326,7 @@ class BasePlugin:
         if state in STATES_CLEANING or state in STATES_PAUSED:
             found_map = False
             for lvl, data in self.maps.items():
-                if "/{}".format(data["id"]) in map_obj:
+                if f"/{data['id']}" in map_obj:
                     active_map_id = data["name"]
                     self.update_selector(UNIT_ROOM_CLEAN, lvl)
                     found_map = True
@@ -335,14 +336,12 @@ class BasePlugin:
         else:
             self.update_selector(UNIT_ROOM_CLEAN, 0)
 
-        self.update_text(UNIT_ROOMS_TEXT, "Active Map: {}".format(active_map_id))
+        self.update_text(UNIT_ROOMS_TEXT, f"Active Map: {active_map_id}")
 
-        consumables = "Main brush: {} | Side brush: {} | Filter: {}".format(status.get("main_brush"), status.get("side_brush"), status.get("filter"))
+        consumables = f"Main brush: {status.get('main_brush')} | Side brush: {status.get('side_brush')} | Filter: {status.get('filter')}"
         self.update_text(UNIT_CONSUMABLES, consumables)
 
-        details = "Map: {}; State: {}; Battery: {}%; Area: {}m2; Time: {} min".format(
-            active_map_id, status.get("state_label"), battery, status.get("cleaned_area"), status.get("cleaning_time")
-        )
+        details = f"Map: {active_map_id}; State: {state_label}; Battery: {battery}%; Area: {status.get('cleaned_area')}m2; Time: {status.get('cleaning_time')} min"
         self.update_text(UNIT_DETAILS, details)
 
     def format_cleaning_mode(self, value: Any) -> str:
@@ -357,7 +356,7 @@ class BasePlugin:
         state = status.get("state")
         if state in STATES_CLEANING: return "Cleaning"
         if state in STATES_RETURNING: return "Return to Dock"
-        if state in STATES_PAUSED: return "Pauzed"
+        if state in STATES_PAUSED: return "Paused"
         return "Stand-by"
 
     def map_state(self, state, charging_status=None) -> int:
@@ -380,30 +379,35 @@ class BasePlugin:
         }
         for unit, suffix in expected_suffixes.items():
             if unit not in Devices: continue
-            wanted = prefix + " " + suffix
+            wanted = f"{prefix} {suffix}"
             current = str(getattr(Devices[unit], "Name", ""))
-            if current != wanted and (current.endswith(" " + suffix) or current == suffix):
-                Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, Name=wanted)
+            if current != wanted and (current.endswith(f" {suffix}") or current == suffix):
+                try:
+                    Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, Name=wanted)
+                except Exception as exc:
+                    self.log_debug(f"Could not rename device {unit}: {exc}")
 
     def create_devices(self):
+        prefix = self.device_prefix()
         if UNIT_STATUS not in Devices:
-            Domoticz.Device(Name=self.device_prefix() + " Status", Unit=UNIT_STATUS, TypeName="Text", Used=1).Create()
-        self.ensure_selector(UNIT_CONTROL, self.device_prefix() + " Control", CONTROL_LEVELS, level_off_hidden="true")
+            Domoticz.Device(Name=f"{prefix} Status", Unit=UNIT_STATUS, TypeName="Text", Used=1).Create()
+        self.ensure_selector(UNIT_CONTROL, f"{prefix} Control", CONTROL_LEVELS, level_off_hidden="true")
         if UNIT_BATTERY not in Devices:
-            Domoticz.Device(Name=self.device_prefix() + " Battery", Unit=UNIT_BATTERY, TypeName="Percentage", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Battery", Unit=UNIT_BATTERY, TypeName="Percentage", Used=1).Create()
         if UNIT_ERROR not in Devices:
-            Domoticz.Device(Name=self.device_prefix() + " Error", Unit=UNIT_ERROR, TypeName="Text", Used=1).Create()
-        self.ensure_selector(UNIT_FAN, self.device_prefix() + " Suction", FAN_LEVELS)
-        self.ensure_selector(UNIT_WATER, self.device_prefix() + " Water", WATER_LEVELS)
+            Domoticz.Device(Name=f"{prefix} Error", Unit=UNIT_ERROR, TypeName="Text", Used=1).Create()
+        self.ensure_selector(UNIT_FAN, f"{prefix} Suction", FAN_LEVELS)
+        self.ensure_selector(UNIT_WATER, f"{prefix} Water", WATER_LEVELS)
+        
         for unit, name in [
             (UNIT_DETAILS, "Details"), (UNIT_ROOMS_TEXT, "Map Info"), (UNIT_MODEL, "Model"),
             (UNIT_CLEANING_MODE, "Cleaning Mode"), (UNIT_TASK_STATUS, "Task Status"), 
             (UNIT_CONSUMABLES, "Consumables"),
         ]:
             if unit not in Devices:
-                Domoticz.Device(Name=self.device_prefix() + " " + name, Unit=unit, TypeName="Text", Used=1).Create()
+                Domoticz.Device(Name=f"{prefix} {name}", Unit=unit, TypeName="Text", Used=1).Create()
         if UNIT_TASK_PROGRESS not in Devices:
-            Domoticz.Device(Name=self.device_prefix() + " Task Progress", Unit=UNIT_TASK_PROGRESS, TypeName="Percentage", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Task Progress", Unit=UNIT_TASK_PROGRESS, TypeName="Percentage", Used=1).Create()
         self.update_map_selector_device()
 
     def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = "0", level_off_hidden: str = "false"):
@@ -419,23 +423,28 @@ class BasePlugin:
             try:
                 Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, Options=options, Name=name)
             except Exception as exc:
-                Domoticz.Log("Could not update selector: {}".format(exc))
+                Domoticz.Log(f"Could not update selector: {exc}")
 
     def update_selector(self, unit: int, level: int):
         if unit in Devices:
-            Devices[unit].Update(nValue=0 if level == 0 else 2, sValue=str(level))
-
-    def update_switch(self, unit: int, value: bool):
-        if unit in Devices:
-            Devices[unit].Update(nValue=1 if value else 0, sValue="On" if value else "Off")
+            try:
+                Devices[unit].Update(nValue=0 if level == 0 else 2, sValue=str(level))
+            except Exception as exc:
+                Domoticz.Log(f"Could not update selector switch {unit}: {exc}")
 
     def update_error(self, message: str):
         if UNIT_ERROR in Devices:
-            Devices[UNIT_ERROR].Update(nValue=0, sValue=str(message)[:255])
+            try:
+                Devices[UNIT_ERROR].Update(nValue=0, sValue=str(message)[:255])
+            except Exception as exc:
+                Domoticz.Log(f"Could not update error text {UNIT_ERROR}: {exc}")
 
     def update_text(self, unit: int, message: str):
         if unit in Devices:
-            Devices[unit].Update(nValue=0, sValue=str(message)[:255])
+            try:
+                Devices[unit].Update(nValue=0, sValue=str(message)[:255])
+            except Exception as exc:
+                Domoticz.Log(f"Could not update text device {unit}: {exc}")
 
 
 _plugin = BasePlugin()
