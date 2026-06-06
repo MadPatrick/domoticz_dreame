@@ -44,7 +44,7 @@ python3 learn_room.py list
 Edit maps:
 
 ```bash
-Default maps are made in de file map_cache.json.
+Default maps are made in the file map_cache.json.
 You need to edit the JSON file file the correct ID and map names
 ```
 
