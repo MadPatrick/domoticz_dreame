@@ -11,7 +11,8 @@ This is a clean and complete plugin version for Dreame robot vacuums, including 
 - Start / Pause / Dock / Stop / Locate commands
 - Suction power selector
 - Water level selector
-- Room cache + Room Clean selector
+- Map cache + Map Select selector
+- Task progress device
 
 ## Installation (Git)
 
@@ -20,6 +21,8 @@ cd /opt/domoticz/plugins
 sudo systemctl stop domoticz
 
 git clone https://github.com/MadPatrick/Domoticz_dreame.git dreame
+cd dreame
+python3 -m pip install -r requirements.txt
 
 sudo systemctl start domoticz
 ```
@@ -31,29 +34,28 @@ Adjust the plugin path above if your Domoticz installation uses a different loca
 - The `Region` parameter is a selector with these choices: `EU`, `DE`, `CN`, `US`, `RU`, `TW`, `SG`, `IN`, `I2`.
 - Default region is `EU`.
 
-## Managing Rooms
+## Managing Maps
 
-Because map/room data is not returned through the regular `sendCommand` route, this version uses a stable room cache.
+Because map data is not always returned through the regular `sendCommand` route, this version uses a stable map cache.
 
-Show room list:
+The plugin creates `map_cache.json` on first start when it does not exist. Edit the generated file with the correct map IDs and names for your robot:
 
-```bash
-python3 learn_room.py list
+```json
+{
+  "maps": [
+    {"id": 8, "name": "Livingroom", "level": 10},
+    {"id": 9, "name": "2nd floor", "level": 20}
+  ]
+}
 ```
 
-Edit maps:
+After changes, restart Domoticz.
 
-```bash
-Default maps are made in the file map_cache.json.
-You need to edit the JSON file file the correct ID and map names
-```
+If the selector does not refresh, remove the `Dreame Map Select` device once in Domoticz and restart Domoticz.
 
-After changes, restart Domoticz.  
-If the selector does not refresh because your Domoticz version does not support `UpdateOptions()`, remove the `Dreame Room Clean` device once in Domoticz and restart Domoticz.
+## Finding Map IDs
 
-## Finding Room IDs
-
-For this model, rooms may not be returned by the normal API route. Possible options:
+For this model, maps may not be returned by the normal API route. Possible options:
 
 1. Test with:
 
@@ -65,15 +67,11 @@ Security note: credentials passed directly on the command line can be stored in 
 
 2. Use app/log/proxy analysis to find segment IDs.
 
-3. If you already know your room IDs, add them directly with `learn_room.py`.
+3. If you already know your map IDs, add them directly to `map_cache.json`.
 
 ## Important
 
-The room-clean payload uses:
+Map Select only sends a map-selection command when a supported `RECOVERY_MAP` or `SELECT_MAP` action is available in the API/profile. It does not fall back to the normal `START` action, to avoid accidentally starting an unrelated cleaning task.
 
-```json
-[[room_id, 1, 1]]
-```
-
-via Dreame `START_CUSTOM`. This is the most likely segment-clean route for this model generation, but firmware differences may apply.
+Map selection is firmware-dependent. If your model needs a different MIOT action or property, add it to `dreame_api.py` after confirming the correct values for that model.
 

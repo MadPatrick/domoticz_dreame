@@ -174,7 +174,7 @@ class BasePlugin:
 
         try:
             self.api = DreameApi(username, password, country, token_file=token_file, logger=self.log_debug)
-            self.api.login()
+            self.api.ensure_token()
             self.device = self.api.select_device(wanted_did)
             self.did = str(self.device.get("did") or self.device.get("deviceId") or self.device.get("id"))
             self.bind_domain = self.api.get_bind_domain(self.device)
@@ -250,9 +250,11 @@ class BasePlugin:
         map_name = self.maps[level]["name"]
         Domoticz.Log(f"Change MAP-ID from JSON: {map_id} ({map_name})")
         
-        action = ACTION.get("RECOVERY_MAP") or ACTION.get("SELECT_MAP") or ACTION.get("START")
+        action = ACTION.get("RECOVERY_MAP") or ACTION.get("SELECT_MAP")
         if not action:
-            Domoticz.Error("No valid MAP-ID found in API.")
+            message = "Map selection action not available for this API/profile."
+            Domoticz.Error(message)
+            self.update_error(message)
             return
             
         payload = [{"piid": 1, "value": map_id}]
@@ -320,13 +322,13 @@ class BasePlugin:
         task_status_text = self.format_task_status(status).replace("\u00b2", "2")
         self.update_text(UNIT_TASK_STATUS, task_status_text)
         
-        map_obj = str(status.get("map_object") or "")
+        map_object_name = self.get_map_object_name(status)
         active_map_id = "None"
         
         if state in STATES_CLEANING or state in STATES_PAUSED:
             found_map = False
             for lvl, data in self.maps.items():
-                if f"/{data['id']}" in map_obj:
+                if self.map_object_matches_id(map_object_name, data["id"]):
                     active_map_id = data["name"]
                     self.update_selector(UNIT_ROOM_CLEAN, lvl)
                     found_map = True
@@ -338,11 +340,51 @@ class BasePlugin:
 
         self.update_text(UNIT_ROOMS_TEXT, f"Active Map: {active_map_id}")
 
+        progress = self.normalize_progress(status.get("task_progress"))
+        if UNIT_TASK_PROGRESS in Devices:
+            try:
+                Devices[UNIT_TASK_PROGRESS].Update(nValue=progress, sValue=str(progress))
+            except Exception as exc:
+                self.log_debug(f"Failed to update task progress device: {exc}")
+
         consumables = f"Main brush: {status.get('main_brush')} | Side brush: {status.get('side_brush')} | Filter: {status.get('filter')}"
         self.update_text(UNIT_CONSUMABLES, consumables)
 
         details = f"Map: {active_map_id}; State: {state_label}; Battery: {battery}%; Area: {status.get('cleaned_area')}m2; Time: {status.get('cleaning_time')} min"
         self.update_text(UNIT_DETAILS, details)
+
+    def get_map_object_name(self, status: Dict[str, Any]) -> str:
+        for key in ("map_object", "map_object_alt"):
+            value = status.get(key)
+            if isinstance(value, dict):
+                object_name = value.get("object_name")
+                if object_name:
+                    return str(object_name)
+            elif isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    continue
+                try:
+                    parsed = json.loads(text)
+                except (TypeError, ValueError):
+                    parsed = None
+                if isinstance(parsed, dict) and parsed.get("object_name"):
+                    return str(parsed["object_name"])
+                return text
+        return ""
+
+    def map_object_matches_id(self, object_name: str, map_id: Any) -> bool:
+        if not object_name:
+            return False
+        parts = str(object_name).strip("/").split("/")
+        return bool(parts) and parts[-1] == str(map_id)
+
+    def normalize_progress(self, value: Any) -> int:
+        try:
+            progress = int(value)
+        except (TypeError, ValueError):
+            return 0
+        return max(0, min(progress, 100))
 
     def format_cleaning_mode(self, value: Any) -> str:
         if value is None: return "Unknown"
