@@ -1,11 +1,19 @@
 """
 <plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.7" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <description>
-        <br/><h2>Dreame API Vacuum</h2><br/>
-        Version: 0.9.7
-        <br/>This plugin connects to Dreame Robot Vacuumcleaner to Domoticz.
-        <br/>Various devices are supported and accordingly controlable.
-</description>
+        <h2>Dreame API Vacuum</h2>
+        <p><strong>Version:</strong> 0.9.7</p>
+        <p>Connects a Dreame robot vacuum through the Dreame Home cloud API and integrates it with Domoticz.</p>
+        <h3>Features</h3>
+        <ul>
+            <li>Status, battery, error, model, task progress and detailed cleaning information.</li>
+            <li>Start, pause, stop, dock and locate controls.</li>
+            <li>Suction power and water level selectors.</li>
+            <li>Map cache and room cleaning selector.</li>
+        </ul>
+        <h3>Configuration</h3>
+        <p>Enter the Dreame Home credentials and region. Use the optional device ID when the account contains multiple devices.</p>
+    </description>
     <params>
         <param field="Username" label="Dreame username" width="300px" required="true" default="" />
         <param field="Password" label="Dreame password" width="300px" required="true" password="true" default="" />
@@ -22,8 +30,8 @@
                 <option label="I2" value="i2" />
             </options>
         </param>
-        <param field="Mode4" label="Device ID / DID, optional" width="150px" required="false" default="" />
-        <param field="Mode5" label="Polling interval seconds" width="75px" required="false" default="300" />
+        <param field="Mode4" label="Device ID / DID (optional)" width="150px" required="false" default="" />
+        <param field="Mode5" label="Polling interval (sec)" width="75px" required="false" default="300" />
         <param field="Mode6" label="Debug" width="75px">
             <options>
                 <option label="False" value="False" default="true" />
