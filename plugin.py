@@ -110,6 +110,30 @@ class BasePlugin:
         self.last_poll = 0.0
         self.debug = False
         self.maps = {}
+        self.imageID = 0
+
+    def _load_device_icon(self):
+        _IMAGE = "dreame"
+        _ICON_ZIP = "dreame_icons.zip"
+        creating_new_icon = _IMAGE not in Images
+        try:
+            Domoticz.Image(_ICON_ZIP).Create()
+        except Exception as e:
+            Domoticz.Error(f"Unable to load icon pack '{_ICON_ZIP}': {e}")
+            return
+        if _IMAGE in Images:
+            self.imageID = Images[_IMAGE].ID
+            Domoticz.Log("Icons created and loaded." if creating_new_icon else
+                         f"Icons found in database (ImageID={self.imageID}).")
+        else:
+            Domoticz.Error(f"Unable to load icon pack '{_ICON_ZIP}'")
+
+    def _apply_device_icon(self):
+        if not self.imageID:
+            return
+        for device in Devices.values():
+            if device.Image != self.imageID:
+                device.Update(nValue=device.nValue, sValue=device.sValue, Image=self.imageID)
 
     def log_debug(self, msg: str):
         if self.debug:
@@ -162,6 +186,8 @@ class BasePlugin:
         self.debug = Parameters.get("Mode6", "False") == "True"
         if self.debug:
             Domoticz.Debugging(1)
+
+        self._load_device_icon()
 
         self.poll_interval = int(Parameters.get("Mode5", "30") or 30)
         self.load_maps_from_cache()
@@ -432,12 +458,12 @@ class BasePlugin:
     def create_devices(self):
         prefix = self.device_prefix()
         if UNIT_STATUS not in Devices:
-            Domoticz.Device(Name=f"{prefix} Status", Unit=UNIT_STATUS, TypeName="Text", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Status", Unit=UNIT_STATUS, TypeName="Text", Image=self.imageID, Used=1).Create()
         self.ensure_selector(UNIT_CONTROL, f"{prefix} Control", CONTROL_LEVELS, level_off_hidden="true")
         if UNIT_BATTERY not in Devices:
-            Domoticz.Device(Name=f"{prefix} Battery", Unit=UNIT_BATTERY, TypeName="Percentage", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Battery", Unit=UNIT_BATTERY, TypeName="Percentage", Image=self.imageID, Used=1).Create()
         if UNIT_ERROR not in Devices:
-            Domoticz.Device(Name=f"{prefix} Error", Unit=UNIT_ERROR, TypeName="Text", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Error", Unit=UNIT_ERROR, TypeName="Text", Image=self.imageID, Used=1).Create()
         self.ensure_selector(UNIT_FAN, f"{prefix} Suction", FAN_LEVELS)
         self.ensure_selector(UNIT_WATER, f"{prefix} Water", WATER_LEVELS)
         
@@ -447,10 +473,11 @@ class BasePlugin:
             (UNIT_CONSUMABLES, "Consumables"),
         ]:
             if unit not in Devices:
-                Domoticz.Device(Name=f"{prefix} {name}", Unit=unit, TypeName="Text", Used=1).Create()
+                Domoticz.Device(Name=f"{prefix} {name}", Unit=unit, TypeName="Text", Image=self.imageID, Used=1).Create()
         if UNIT_TASK_PROGRESS not in Devices:
-            Domoticz.Device(Name=f"{prefix} Task Progress", Unit=UNIT_TASK_PROGRESS, TypeName="Percentage", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Task Progress", Unit=UNIT_TASK_PROGRESS, TypeName="Percentage", Image=self.imageID, Used=1).Create()
         self.update_map_selector_device()
+        self._apply_device_icon()
 
     def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = "0", level_off_hidden: str = "false"):
         options = {
@@ -460,7 +487,7 @@ class BasePlugin:
             "SelectorStyle": selector_style,
         }
         if unit not in Devices:
-            Domoticz.Device(Name=name, Unit=unit, TypeName="Selector Switch", Switchtype=18, Image=7, Options=options, Used=1).Create()
+            Domoticz.Device(Name=name, Unit=unit, TypeName="Selector Switch", Switchtype=18, Image=self.imageID, Options=options, Used=1).Create()
         else:
             try:
                 Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, Options=options, Name=name)
