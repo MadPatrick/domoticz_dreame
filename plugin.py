@@ -1,8 +1,8 @@
 """
-<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.8" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
+<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.9" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <description>
         <h2>Dreame API Vacuum</h2>
-        <p><strong>Version:</strong> 0.9.8</p>
+        <p><strong>Version:</strong> 0.9.9</p>
         <p>Connects a Dreame robot vacuum through the Dreame Home cloud API and integrates it with Domoticz.</p>
         <h3>Features</h3>
         <ul>
@@ -105,6 +105,9 @@ STATES_CHARGING = frozenset({6, 13, 24})
 STATES_DOCKED = frozenset({8, 9, 20, 22, 29, 30, 32, 33, 34, 35, 36, 105, 106})
 STATES_IDLE = frozenset({2, 14, 15, 16})
 
+ICON_NAME = "dreame"
+ICON_ZIP = "dreame_icons.zip"
+
 
 class BasePlugin:
     def __init__(self):
@@ -118,6 +121,46 @@ class BasePlugin:
         self.last_poll = 0.0
         self.debug = False
         self.maps = {}
+        self.imageID = 0
+
+    def _load_device_icon(self):
+        existing_image = next(
+            (image for name, image in Images.items()
+             if str(name).casefold() == ICON_NAME.casefold()),
+            None,
+        )
+        if existing_image is not None:
+            self.imageID = existing_image.ID
+            Domoticz.Log(f"Icons found in database (ImageID={self.imageID}).")
+            return
+
+        try:
+            Domoticz.Image(ICON_ZIP).Create()
+        except Exception as exc:
+            Domoticz.Error(f"Unable to load icon pack '{ICON_ZIP}': {exc}")
+            return
+
+        created_image = next(
+            (image for name, image in Images.items()
+             if str(name).casefold() == ICON_NAME.casefold()),
+            None,
+        )
+        if created_image is not None:
+            self.imageID = created_image.ID
+            Domoticz.Log("Icons created and loaded.")
+        else:
+            Domoticz.Error(f"Unable to load icon pack '{ICON_ZIP}'")
+
+    def _apply_device_icon(self):
+        if not self.imageID:
+            return
+        for device in Devices.values():
+            if device.Image != self.imageID:
+                device.Update(
+                    nValue=device.nValue,
+                    sValue=device.sValue,
+                    Image=self.imageID,
+                )
 
     def log_debug(self, msg: str):
         if self.debug:
@@ -203,6 +246,7 @@ class BasePlugin:
             profile_name = self.model_profile.get("name", "Generic Dreame")
 
             self.create_devices()
+            self._apply_device_icon()
             self.rename_existing_devices_with_prefix()
             self.update_map_selector_device()
             self.update_text(UNIT_MODEL, f"{profile_name} ({self.model})")
@@ -225,6 +269,8 @@ class BasePlugin:
 
         self.poll_interval = self._read_poll_interval()
         self.load_maps_from_cache()
+        self._load_device_icon()
+        self._apply_device_icon()
 
         # Eerste keer proberen te verbinden
         self.connect_dreame()
@@ -477,12 +523,12 @@ class BasePlugin:
     def create_devices(self):
         prefix = self.device_prefix()
         if UNIT_STATUS not in Devices:
-            Domoticz.Device(Name=f"{prefix} Status", Unit=UNIT_STATUS, TypeName="Text", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Status", Unit=UNIT_STATUS, TypeName="Text", Image=self.imageID, Used=1).Create()
         self.ensure_selector(UNIT_CONTROL, f"{prefix} Control", CONTROL_LEVELS, level_off_hidden="true")
         if UNIT_BATTERY not in Devices:
-            Domoticz.Device(Name=f"{prefix} Battery", Unit=UNIT_BATTERY, TypeName="Percentage", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Battery", Unit=UNIT_BATTERY, TypeName="Percentage", Image=self.imageID, Used=1).Create()
         if UNIT_ERROR not in Devices:
-            Domoticz.Device(Name=f"{prefix} Error", Unit=UNIT_ERROR, TypeName="Text", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Error", Unit=UNIT_ERROR, TypeName="Text", Image=self.imageID, Used=1).Create()
         self.ensure_selector(UNIT_FAN, f"{prefix} Suction", FAN_LEVELS)
         self.ensure_selector(UNIT_WATER, f"{prefix} Water", WATER_LEVELS)
 
@@ -492,9 +538,9 @@ class BasePlugin:
             (UNIT_CONSUMABLES, "Consumables"),
         ]:
             if unit not in Devices:
-                Domoticz.Device(Name=f"{prefix} {name}", Unit=unit, TypeName="Text", Used=1).Create()
+                Domoticz.Device(Name=f"{prefix} {name}", Unit=unit, TypeName="Text", Image=self.imageID, Used=1).Create()
         if UNIT_TASK_PROGRESS not in Devices:
-            Domoticz.Device(Name=f"{prefix} Task Progress", Unit=UNIT_TASK_PROGRESS, TypeName="Percentage", Used=1).Create()
+            Domoticz.Device(Name=f"{prefix} Task Progress", Unit=UNIT_TASK_PROGRESS, TypeName="Percentage", Image=self.imageID, Used=1).Create()
         self.update_map_selector_device()
 
     def ensure_selector(self, unit: int, name: str, levels: Dict[int, str], selector_style: str = "0", level_off_hidden: str = "false"):
@@ -505,7 +551,7 @@ class BasePlugin:
             "SelectorStyle": selector_style,
         }
         if unit not in Devices:
-            Domoticz.Device(Name=name, Unit=unit, TypeName="Selector Switch", Switchtype=18, Image=7, Options=options, Used=1).Create()
+            Domoticz.Device(Name=name, Unit=unit, TypeName="Selector Switch", Switchtype=18, Image=self.imageID, Options=options, Used=1).Create()
         else:
             try:
                 Devices[unit].Update(nValue=Devices[unit].nValue, sValue=Devices[unit].sValue, Options=options, Name=name)
