@@ -112,7 +112,13 @@ STATES_CHARGING = frozenset({6, 13, 24})
 STATES_DOCKED = frozenset({8, 9, 20, 22, 29, 30, 32, 33, 34, 35, 36, 105, 106})
 STATES_IDLE = frozenset({2, 14, 15, 16})
 
-ICON_NAME = "dreame"
+# ICON_NAME must start with this plugin's key ("DreameApi") - Domoticz only
+# loads a plugin's pre-existing custom icons into Images at startup when the
+# icon's Base (in icons.txt) satisfies Base LIKE '<PluginKey>%'. The short
+# "dreame" Base used before didn't satisfy that, so Images never contained
+# it on restart and it was silently recreated (and re-logged as "created")
+# every single time instead of found.
+ICON_NAME = "DreameApi"
 ICON_ZIP = "dreame_icons.zip"
 
 
