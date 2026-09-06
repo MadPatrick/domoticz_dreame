@@ -1,8 +1,8 @@
 """
-<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.9.9" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
+<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.10.0" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <description>
         <h2>Dreame API Vacuum</h2>
-        <p><strong>Version:</strong> 0.9.9</p>
+        <p><strong>Version:</strong> 0.10.0</p>
         <p>Connects a Dreame robot vacuum through the Dreame Home cloud API and integrates it with Domoticz.</p>
         <h3>Features</h3>
         <ul>
@@ -15,9 +15,13 @@
         <p>Enter the Dreame Home credentials and region. Use the optional device ID when the account contains multiple devices.</p>
     </description>
     <params>
-        <param field="Username" label="Dreame username" width="300px" required="true" default="" />
+        <param field="Username" label="Dreame username" width="300px" required="true" default="">
+            <description>
+                <h4 style="margin:4px 0 6px 0;">Account</h4>
+            </description>
+        </param>
         <param field="Password" label="Dreame password" width="300px" required="true" password="true" default="" />
-        <param field="Mode3" label="Region" width="75px" required="true">
+        <param field="Region" label="Region" width="75px" required="true">
             <options>
                 <option label="EU" value="eu" default="true" />
                 <option label="DE" value="de" />
@@ -30,13 +34,16 @@
                 <option label="I2" value="i2" />
             </options>
         </param>
-        <param field="Mode4" label="Device ID / DID (optional)" width="150px" required="false" default="" />
-        <param field="Mode5" label="Polling interval (sec)" width="75px" required="false" default="300" />
-        <param field="Mode6" label="Debug" width="75px">
-            <options>
-                <option label="False" value="False" default="true" />
-                <option label="True" value="True" />
-            </options>
+        <param field="DeviceID" label="Device ID / DID (optional)" width="150px" required="false" default="">
+            <description>
+                <h4 style="margin:14px 0 6px 0; border-top:1px solid #ccc; padding-top:8px;">Device</h4>
+            </description>
+        </param>
+        <param field="PollingInterval" label="Polling interval (sec)" width="75px" required="false" default="300" />
+        <param field="EnableDebug" type="boolean" label="Debug" default="false">
+            <description>
+                <h4 style="margin:14px 0 6px 0; border-top:1px solid #ccc; padding-top:8px;">Logging</h4>
+            </description>
         </param>
     </params>
 </plugin>
@@ -166,8 +173,27 @@ class BasePlugin:
         if self.debug:
             Domoticz.Debug(str(msg))
 
+    def _read_migrated_parameter(self, field, legacy_field, default=""):
+        """Read a named setting, falling back to its former ModeX field.
+
+        Empty defaults on the new settings make existing Domoticz hardware
+        configurations continue to work until they are saved with the new
+        field names.
+        """
+        raw = Parameters.get(field, "")
+        if raw is None or str(raw).strip() == "":
+            raw = Parameters.get(legacy_field, "")
+        if raw is None or str(raw).strip() == "":
+            return default
+        return raw
+
+    def _read_migrated_boolean_parameter(self, field, legacy_field, default=False, extra_truthy=()):
+        raw = self._read_migrated_parameter(field, legacy_field, "true" if default else "false")
+        truthy = {"true", "1", "yes", "on"} | {v.lower() for v in extra_truthy}
+        return str(raw).strip().lower() in truthy
+
     def _read_poll_interval(self) -> int:
-        raw = Parameters.get("Mode5", "")
+        raw = self._read_migrated_parameter("PollingInterval", "Mode5", "")
         if raw is None or str(raw).strip() == "":
             return 300
         try:
@@ -228,8 +254,8 @@ class BasePlugin:
         """Initialiseert de connectie met de Dreame API."""
         username = Parameters.get("Username", "").strip()
         password = Parameters.get("Password", "")
-        country = (Parameters.get("Mode3", "eu") or "eu").strip().lower()
-        wanted_did = Parameters.get("Mode4", "").strip() or None
+        country = str(self._read_migrated_parameter("Region", "Mode3", "eu") or "eu").strip().lower()
+        wanted_did = str(self._read_migrated_parameter("DeviceID", "Mode4", "")).strip() or None
         token_file = os.path.join(self.plugin_dir(), "dreame_token_cache.json")
 
         try:
@@ -263,7 +289,7 @@ class BasePlugin:
             return False
 
     def onStart(self):
-        self.debug = Parameters.get("Mode6", "False") == "True"
+        self.debug = self._read_migrated_boolean_parameter("EnableDebug", "Mode6", False)
         if self.debug:
             Domoticz.Debugging(1)
 
@@ -276,7 +302,7 @@ class BasePlugin:
         self.connect_dreame()
 
         # Heartbeat staat bewust op 10s zodat de plugin snel reageert op commando's.
-        # Het echte poll-interval (Mode5) wordt gecontroleerd in poll() via last_poll.
+        # Het echte poll-interval (PollingInterval) wordt gecontroleerd in poll() via last_poll.
         Domoticz.Heartbeat(10)
         self.poll(force=True)
 
