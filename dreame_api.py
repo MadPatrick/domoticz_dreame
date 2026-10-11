@@ -253,7 +253,7 @@ class DreameApi:
             raise DreameApiError(
                 f"{context} did not return JSON. HTTP {response.status_code} "
                 f"content-type {response.headers.get('content-type')} first bytes {preview}"
-            )
+            ) from None
 
     def login(self) -> Dict[str, Any]:
         password_hash = self._hash_password(self.password)
