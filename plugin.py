@@ -1,8 +1,8 @@
 """
-<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.10.0" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
+<plugin key="DreameApi" name="Dreame API Vacuum" author="MadPatrick" version="0.10.1" wikilink="" externallink="https://github.com/MadPatrick/Domoticz_dreame">
     <description>
         <h2>Dreame API Vacuum</h2>
-        <p><strong>Version:</strong> 0.10.0</p>
+        <p><strong>Version:</strong> 0.10.1</p>
         <p>Connects a Dreame robot vacuum through the Dreame Home cloud API and integrates it with Domoticz.</p>
         <h3>Features</h3>
         <ul>
